@@ -1,33 +1,25 @@
 from __future__ import annotations
 
+from math import hypot
+
 import bpy
 from bpy_extras.view3d_utils import region_2d_to_origin_3d, region_2d_to_vector_3d
 
 
-class ZNAV_OT_mask_ctrl_click(bpy.types.Operator):
-    bl_idname = "zbrush_navigation.mask_ctrl_click"
-    bl_label = "ZBrush Mask Ctrl Click"
-    bl_description = "Invert sculpt mask when Ctrl+LMB clicks outside the active sculpt object"
-    bl_options = {"REGISTER", "UNDO"}
-
-    @classmethod
-    def poll(cls, context):
-        return _can_use_sculpt_mask(context)
-
-    def invoke(self, context, event):
-        if _event_hits_active_object(context, event):
-            return {"PASS_THROUGH"}
-        bpy.ops.paint.mask_flood_fill(mode="INVERT")
-        return {"FINISHED"}
+MASK_DRAG_THRESHOLD_PIXELS = 4.0
 
 
 class ZNAV_OT_mask_pen_input(bpy.types.Operator):
     bl_idname = "zbrush_navigation.mask_pen_input"
     bl_label = "ZBrush Mask Pen Input"
-    bl_description = "Use brush mask on-object and native box mask when dragging from outside the sculpt object"
+    bl_description = "Change the mask on outside Ctrl+click, or start the configured mask gesture on outside Ctrl+drag"
     bl_options = {"REGISTER", "UNDO"}
 
     value: bpy.props.FloatProperty(default=1.0)
+
+    _start_mouse_x = 0
+    _start_mouse_y = 0
+    _drag_started = False
 
     @classmethod
     def poll(cls, context):
@@ -37,8 +29,39 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
         if _event_hits_active_object(context, event):
             return {"PASS_THROUGH"}
 
-        settings = context.window_manager.zbrush_navigation_settings
-        return _invoke_pen_outside_drag_gesture(settings.pen_outside_drag_mode, self.value)
+        self._start_mouse_x = event.mouse_region_x
+        self._start_mouse_y = event.mouse_region_y
+        self._drag_started = False
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context, event):
+        if event.type == "ESC":
+            return {"CANCELLED"}
+
+        if event.type == "MOUSEMOVE" and not self._drag_started and self._drag_distance(event) >= MASK_DRAG_THRESHOLD_PIXELS:
+            self._drag_started = True
+            settings = context.window_manager.zbrush_navigation_settings
+            result = _invoke_pen_outside_drag_gesture(settings.pen_outside_drag_mode, self.value)
+            if "CANCELLED" in result:
+                return {"CANCELLED"}
+            return {"FINISHED"}
+
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            if self._drag_started:
+                return {"FINISHED"}
+            if self.value == 1.0:
+                bpy.ops.paint.mask_flood_fill(mode="INVERT")
+                return {"FINISHED"}
+            if self.value == 0.0:
+                bpy.ops.paint.mask_flood_fill(mode="VALUE", value=0.0)
+                return {"FINISHED"}
+            raise RuntimeError(f"Unsupported mask click value: {self.value}")
+
+        return {"RUNNING_MODAL"}
+
+    def _drag_distance(self, event) -> float:
+        return hypot(event.mouse_region_x - self._start_mouse_x, event.mouse_region_y - self._start_mouse_y)
 
 
 def _invoke_pen_outside_drag_gesture(mode: str, value: float) -> set[str]:

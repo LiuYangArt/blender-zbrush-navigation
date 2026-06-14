@@ -72,7 +72,7 @@ def test_keymaps_are_addon_scoped() -> None:
         assert _has_keymap_item(addon_sculpt_keymap, "view3d.zoom", "RIGHTMOUSE", ctrl=True)
         assert _has_keymap_item(addon_sculpt_keymap, "view3d.move", "RIGHTMOUSE", alt=True)
         assert _has_keymap_item(addon_sculpt_keymap, "sculpt.brush_stroke", "LEFTMOUSE", alt=True, mode="INVERT")
-        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_ctrl_click", "LEFTMOUSE", ctrl=True, value="CLICK")
+        assert not _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_ctrl_click", "LEFTMOUSE", ctrl=True, value="CLICK")
         assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_pen_input", "LEFTMOUSE", ctrl=True, float_value=1.0)
         assert _has_keymap_item(
             addon_sculpt_keymap,
@@ -107,6 +107,7 @@ def test_keymaps_are_addon_scoped() -> None:
         navigation_state.refresh_zbrush_navigation()
         addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
         assert _has_keymap_item(addon_sculpt_keymap, "view3d.rotate", "RIGHTMOUSE")
+        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_pen_input", "LEFTMOUSE", ctrl=True, float_value=1.0)
         assert _has_keymap_item(
             addon_sculpt_keymap,
             "paint.mask_lasso_gesture",
@@ -278,7 +279,6 @@ def _has_runtime_navigation_items(keymap) -> bool:
     runtime_idnames = {
         "zbrush_navigation.zbrush_rotate_modal",
         "zbrush_navigation.snap_view_to_nearest_axis",
-        "zbrush_navigation.mask_ctrl_click",
         "zbrush_navigation.mask_pen_input",
         "paint.mask_lasso_gesture",
         "sculpt.brush_stroke",

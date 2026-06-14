@@ -248,38 +248,31 @@ def _add_zbrush_keymap_items() -> None:
                 alt=True,
                 properties={"mode": "INVERT"},
             )
-            _add_keymap_item(
-                "addon",
-                keymap,
-                "zbrush_navigation.mask_ctrl_click",
-                "LEFTMOUSE",
-                "CLICK",
-                ctrl=True,
-            )
             _add_mask_input_keymap_items(keymap, _get_mask_input_mode())
 
 
 def _add_mask_input_keymap_items(keymap: bpy.types.KeyMap, mask_input_mode: str) -> None:
+    _add_keymap_item(
+        "addon",
+        keymap,
+        "zbrush_navigation.mask_pen_input",
+        "LEFTMOUSE",
+        "PRESS",
+        ctrl=True,
+        properties={"value": 1.0},
+    )
+    _add_keymap_item(
+        "addon",
+        keymap,
+        "zbrush_navigation.mask_pen_input",
+        "LEFTMOUSE",
+        "PRESS",
+        ctrl=True,
+        alt=True,
+        properties={"value": 0.0},
+    )
+
     if mask_input_mode == "PEN":
-        _add_keymap_item(
-            "addon",
-            keymap,
-            "zbrush_navigation.mask_pen_input",
-            "LEFTMOUSE",
-            "PRESS",
-            ctrl=True,
-            properties={"value": 1.0},
-        )
-        _add_keymap_item(
-            "addon",
-            keymap,
-            "zbrush_navigation.mask_pen_input",
-            "LEFTMOUSE",
-            "PRESS",
-            ctrl=True,
-            alt=True,
-            properties={"value": 0.0},
-        )
         _add_keymap_item(
             "addon",
             keymap,
