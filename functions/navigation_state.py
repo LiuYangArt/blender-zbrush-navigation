@@ -17,7 +17,6 @@ RIGHT_MOUSE_TARGET_MODIFIERS = {
     (False, False, True, False),  # Alt RMB
     (True, False, False, False),  # Shift RMB
 }
-AXIS_SNAP_MODAL_VALUES = {"AXIS_SNAP_ENABLE", "AXIS_SNAP_DISABLE"}
 STATUS_MESSAGE_DURATION_SECONDS = 2.5
 
 
@@ -44,6 +43,21 @@ class _KeymapItemSignature:
 
 
 @dataclass(frozen=True)
+class _SerializedModalItem:
+    propvalue: str
+    type: str
+    value: str
+    any: bool
+    shift: bool
+    ctrl: bool
+    alt: bool
+    oskey: bool
+    key_modifier: str
+    direction: str
+    active: bool
+
+
+@dataclass(frozen=True)
 class _ActiveStateSnapshot:
     location: _KeymapLocation
     signature: _KeymapItemSignature
@@ -55,12 +69,19 @@ class _AddedKeymapItem:
     signature: _KeymapItemSignature
 
 
+@dataclass(frozen=True)
+class _CreatedKeymap:
+    location: _KeymapLocation
+
+
 @dataclass
 class _RuntimeState:
     applied: bool = False
     original_emulate_3_button: bool | None = None
     active_snapshots: list[_ActiveStateSnapshot] = field(default_factory=list)
     added_keymap_items: list[_AddedKeymapItem] = field(default_factory=list)
+    created_keymaps: list[_CreatedKeymap] = field(default_factory=list)
+    rotate_modal_snapshot: list[_SerializedModalItem] | None = None
 
 
 _runtime_state = _RuntimeState()
@@ -107,8 +128,10 @@ def apply_zbrush_navigation() -> None:
 
 def restore_zbrush_navigation() -> None:
     preferences = bpy.context.preferences
+    _restore_rotate_modal_keymap()
     _remove_added_keymap_items()
     _restore_disabled_keymap_items()
+    _remove_empty_created_keymaps()
     if _runtime_state.original_emulate_3_button is not None:
         preferences.inputs.use_mouse_emulate_3_button = _runtime_state.original_emulate_3_button
     _show_status_message("ZBrush Navigation: original navigation restored")
@@ -120,6 +143,8 @@ def _reset_runtime_state() -> None:
     _runtime_state.original_emulate_3_button = None
     _runtime_state.active_snapshots.clear()
     _runtime_state.added_keymap_items.clear()
+    _runtime_state.created_keymaps.clear()
+    _runtime_state.rotate_modal_snapshot = None
 
 
 def _show_status_message(message: str) -> None:
@@ -138,21 +163,15 @@ def _show_status_message(message: str) -> None:
 
 
 def _disable_conflicting_keymap_items() -> None:
-    for keyconfig_name in ("user", "default"):
-        keyconfig = getattr(bpy.context.window_manager.keyconfigs, keyconfig_name, None)
-        if keyconfig is None:
-            continue
+    keyconfig_name = "user"
+    keyconfig = getattr(bpy.context.window_manager.keyconfigs, keyconfig_name, None)
+    if keyconfig is None:
+        return
 
-        for keymap in _iter_navigation_conflict_keymaps(keyconfig):
-            for keymap_item in keymap.keymap_items:
-                if _is_conflicting_right_mouse_item(keymap_item):
-                    _disable_keymap_item(keyconfig_name, keymap, keymap_item)
-
-        rotate_modal_keymap = _get_existing_keymap(keyconfig, VIEW3D_ROTATE_MODAL_KEYMAP_NAME)
-        if rotate_modal_keymap is not None:
-            for keymap_item in rotate_modal_keymap.keymap_items:
-                if _is_axis_snap_modal_item(keymap_item):
-                    _disable_keymap_item(keyconfig_name, rotate_modal_keymap, keymap_item)
+    for keymap in _iter_navigation_conflict_keymaps(keyconfig):
+        for keymap_item in keymap.keymap_items:
+            if _is_conflicting_right_mouse_item(keymap_item):
+                _disable_keymap_item(keyconfig_name, keymap, keymap_item)
 
 
 def _iter_navigation_conflict_keymaps(keyconfig: bpy.types.KeyConfig):
@@ -190,16 +209,15 @@ def _add_zbrush_keymap_items() -> None:
         raise RuntimeError("Blender user keyconfig is not available")
 
     for keymap_name in NAVIGATION_KEYMAP_NAMES:
-        keymap = _get_or_create_keymap(user_keyconfig, keymap_name, space_type=_space_type_for_keymap(keymap_name))
+        keymap = _get_or_create_keymap("user", user_keyconfig, keymap_name, space_type=_space_type_for_keymap(keymap_name))
         _add_keymap_item("user", keymap, "view3d.rotate", "RIGHTMOUSE", "PRESS")
         _add_keymap_item("user", keymap, "view3d.zoom", "RIGHTMOUSE", "PRESS", ctrl=True)
         _add_keymap_item("user", keymap, "view3d.move", "RIGHTMOUSE", "PRESS", alt=True)
 
-    rotate_modal_keymap = _get_or_create_keymap(user_keyconfig, VIEW3D_ROTATE_MODAL_KEYMAP_NAME, modal=True)
-    _add_modal_keymap_item("user", rotate_modal_keymap, "AXIS_SNAP_ENABLE", "LEFT_SHIFT", "PRESS")
-    _add_modal_keymap_item("user", rotate_modal_keymap, "AXIS_SNAP_DISABLE", "LEFT_SHIFT", "RELEASE")
-    _add_modal_keymap_item("user", rotate_modal_keymap, "AXIS_SNAP_ENABLE", "RIGHT_SHIFT", "PRESS")
-    _add_modal_keymap_item("user", rotate_modal_keymap, "AXIS_SNAP_DISABLE", "RIGHT_SHIFT", "RELEASE")
+    rotate_modal_keymap = _get_or_create_keymap("user", user_keyconfig, VIEW3D_ROTATE_MODAL_KEYMAP_NAME, modal=True)
+    _ensure_default_rotate_modal_items(rotate_modal_keymap)
+    _runtime_state.rotate_modal_snapshot = _serialize_modal_keymap(rotate_modal_keymap)
+    _ensure_shift_axis_snap_modal_items(rotate_modal_keymap)
 
 
 def _add_keymap_item(
@@ -221,17 +239,119 @@ def _add_keymap_item(
     )
 
 
+def _ensure_default_rotate_modal_items(keymap: bpy.types.KeyMap) -> None:
+    defaults = (
+        ("CANCEL", "RIGHTMOUSE", "PRESS", False),
+        ("AXIS_SNAP_ENABLE", "LEFT_ALT", "PRESS", True),
+        ("AXIS_SNAP_DISABLE", "LEFT_ALT", "RELEASE", True),
+        ("AXIS_SNAP_ENABLE", "RIGHT_ALT", "PRESS", True),
+        ("AXIS_SNAP_DISABLE", "RIGHT_ALT", "RELEASE", True),
+    )
+    missing_defaults = [item for item in defaults if _find_modal_keymap_item(keymap, item[0], item[1], item[2]) is None]
+    if not missing_defaults:
+        return
+
+    for keymap_item in reversed(list(keymap.keymap_items)):
+        if _is_shift_axis_snap_modal_item(keymap_item):
+            keymap.keymap_items.remove(keymap_item)
+
+    for propvalue, event_type, value, any_modifier in defaults:
+        if _find_modal_keymap_item(keymap, propvalue, event_type, value) is None:
+            keymap_item = _add_modal_keymap_item(keymap, propvalue, event_type, value, any=any_modifier, track=False)
+            keymap_item.active = True
+    print("ZBrush Navigation: repaired user View3D Rotate Modal keymap")
+
+
+def _ensure_shift_axis_snap_modal_items(keymap: bpy.types.KeyMap) -> None:
+    _ensure_modal_keymap_item(keymap, "AXIS_SNAP_ENABLE", "LEFT_SHIFT", "PRESS")
+    _ensure_modal_keymap_item(keymap, "AXIS_SNAP_DISABLE", "LEFT_SHIFT", "RELEASE")
+    _ensure_modal_keymap_item(keymap, "AXIS_SNAP_ENABLE", "RIGHT_SHIFT", "PRESS")
+    _ensure_modal_keymap_item(keymap, "AXIS_SNAP_DISABLE", "RIGHT_SHIFT", "RELEASE")
+
+
+def _ensure_modal_keymap_item(keymap: bpy.types.KeyMap, propvalue: str, event_type: str, value: str) -> None:
+    keymap_item = _find_modal_keymap_item(keymap, propvalue, event_type, value)
+    if keymap_item is None:
+        keymap_item = keymap.keymap_items.new_modal(propvalue, event_type, value)
+    keymap_item.active = True
+
+
 def _add_modal_keymap_item(
-    keyconfig_name: str,
     keymap: bpy.types.KeyMap,
     propvalue: str,
     event_type: str,
     value: str,
-) -> None:
-    keymap_item = keymap.keymap_items.new_modal(propvalue, event_type, value)
-    _runtime_state.added_keymap_items.append(
-        _AddedKeymapItem(_KeymapLocation(keyconfig_name, keymap.name), _get_keymap_item_signature(keymap_item))
+    *,
+    any: bool = False,
+    track: bool = False,
+) -> bpy.types.KeyMapItem:
+    keymap_item = keymap.keymap_items.new_modal(propvalue, event_type, value, any=any)
+    if track:
+        _runtime_state.added_keymap_items.append(
+            _AddedKeymapItem(_KeymapLocation("user", keymap.name), _get_keymap_item_signature(keymap_item))
+        )
+    return keymap_item
+
+
+def _find_modal_keymap_item(
+    keymap: bpy.types.KeyMap,
+    propvalue: str,
+    event_type: str,
+    value: str,
+) -> bpy.types.KeyMapItem | None:
+    for keymap_item in keymap.keymap_items:
+        if keymap_item.propvalue == propvalue and keymap_item.type == event_type and keymap_item.value == value:
+            return keymap_item
+    return None
+
+def _is_shift_axis_snap_modal_item(keymap_item: bpy.types.KeyMapItem) -> bool:
+    return (
+        keymap_item.propvalue in {"AXIS_SNAP_ENABLE", "AXIS_SNAP_DISABLE"}
+        and keymap_item.type in {"LEFT_SHIFT", "RIGHT_SHIFT"}
     )
+
+
+def _serialize_modal_keymap(keymap: bpy.types.KeyMap) -> list[_SerializedModalItem]:
+    return [_serialize_modal_keymap_item(keymap_item) for keymap_item in keymap.keymap_items]
+
+
+def _serialize_modal_keymap_item(keymap_item: bpy.types.KeyMapItem) -> _SerializedModalItem:
+    return _SerializedModalItem(
+        propvalue=keymap_item.propvalue,
+        type=keymap_item.type,
+        value=keymap_item.value,
+        any=bool(keymap_item.any),
+        shift=bool(keymap_item.shift),
+        ctrl=bool(keymap_item.ctrl),
+        alt=bool(keymap_item.alt),
+        oskey=bool(keymap_item.oskey),
+        key_modifier=keymap_item.key_modifier,
+        direction=keymap_item.direction,
+        active=bool(keymap_item.active),
+    )
+
+
+def _restore_rotate_modal_keymap() -> None:
+    if _runtime_state.rotate_modal_snapshot is None:
+        return
+    user_keyconfig = bpy.context.window_manager.keyconfigs.user
+    keymap = _get_or_create_keymap("user", user_keyconfig, VIEW3D_ROTATE_MODAL_KEYMAP_NAME, modal=True)
+    for keymap_item in reversed(list(keymap.keymap_items)):
+        keymap.keymap_items.remove(keymap_item)
+    for item in _runtime_state.rotate_modal_snapshot:
+        keymap_item = keymap.keymap_items.new_modal(
+            item.propvalue,
+            item.type,
+            item.value,
+            any=item.any,
+            shift=item.shift,
+            ctrl=item.ctrl,
+            alt=item.alt,
+            oskey=item.oskey,
+            key_modifier=item.key_modifier,
+            direction=item.direction,
+        )
+        keymap_item.active = item.active
 
 
 def _remove_added_keymap_items() -> None:
@@ -243,6 +363,19 @@ def _remove_added_keymap_items() -> None:
         removed = _remove_first_matching_keymap_item(keymap, added_item.signature)
         if not removed:
             print(f"ZBrush Navigation: skipped removal; keymap item already gone: {added_item.location}")
+
+
+def _remove_empty_created_keymaps() -> None:
+    for created_keymap in reversed(_runtime_state.created_keymaps):
+        if created_keymap.location.keymap_name == VIEW3D_ROTATE_MODAL_KEYMAP_NAME:
+            continue
+        keyconfig = getattr(bpy.context.window_manager.keyconfigs, created_keymap.location.keyconfig_name, None)
+        if keyconfig is None:
+            continue
+        keymap = _get_existing_keymap(keyconfig, created_keymap.location.keymap_name)
+        if keymap is None or len(keymap.keymap_items) != 0:
+            continue
+        keyconfig.keymaps.remove(keymap)
 
 
 def _remove_first_matching_keymap_item(keymap: bpy.types.KeyMap, signature: _KeymapItemSignature) -> bool:
@@ -260,8 +393,6 @@ def _set_first_matching_keymap_item_active(
     active: bool,
 ) -> bool:
     for keymap_item in reversed(list(keymap.keymap_items)):
-        if keymap_item.active == active:
-            continue
         if _get_keymap_item_signature(keymap_item) == signature:
             keymap_item.active = active
             return True
@@ -297,6 +428,7 @@ def _get_existing_keymap(keyconfig: bpy.types.KeyConfig, name: str) -> bpy.types
 
 
 def _get_or_create_keymap(
+    keyconfig_name: str,
     keyconfig: bpy.types.KeyConfig,
     name: str,
     *,
@@ -307,7 +439,9 @@ def _get_or_create_keymap(
     existing_keymap = _get_existing_keymap(keyconfig, name)
     if existing_keymap is not None:
         return existing_keymap
-    return keyconfig.keymaps.new(name=name, space_type=space_type, region_type=region_type, modal=modal)
+    keymap = keyconfig.keymaps.new(name=name, space_type=space_type, region_type=region_type, modal=modal)
+    _runtime_state.created_keymaps.append(_CreatedKeymap(_KeymapLocation(keyconfig_name, name)))
+    return keymap
 
 
 def _space_type_for_keymap(keymap_name: str) -> str:
@@ -322,10 +456,6 @@ def _is_conflicting_right_mouse_item(keymap_item: bpy.types.KeyMapItem) -> bool:
     if keymap_item.any:
         return True
     return _modifier_state(keymap_item) in RIGHT_MOUSE_TARGET_MODIFIERS
-
-
-def _is_axis_snap_modal_item(keymap_item: bpy.types.KeyMapItem) -> bool:
-    return getattr(keymap_item, "propvalue", None) in AXIS_SNAP_MODAL_VALUES
 
 
 def _modifier_state(keymap_item: bpy.types.KeyMapItem) -> tuple[bool, bool, bool, bool]:
