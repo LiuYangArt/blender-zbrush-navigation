@@ -3,6 +3,12 @@ from __future__ import annotations
 import bpy
 
 
+def _refresh_runtime_navigation_keymaps(self, context) -> None:
+    from ..functions.navigation_state import refresh_zbrush_navigation
+
+    refresh_zbrush_navigation()
+
+
 class ZNAV_PG_settings(bpy.types.PropertyGroup):
     enable_zbrush_navigation: bpy.props.BoolProperty(
         name="Enable ZBrush Navigation",
@@ -17,6 +23,7 @@ class ZNAV_PG_settings(bpy.types.PropertyGroup):
             ("LASSO", "Lasso", "Use lasso-based mask input"),
         ),
         default="PEN",
+        update=_refresh_runtime_navigation_keymaps,
     )
 
 

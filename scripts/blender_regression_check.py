@@ -50,7 +50,59 @@ def test_keymaps_are_addon_scoped() -> None:
     assert _has_keymap_item(addon_sculpt_keymap, "view3d.move", "RIGHTMOUSE", alt=True)
     assert _has_keymap_item(addon_sculpt_keymap, "sculpt.brush_stroke", "LEFTMOUSE", alt=True, mode="INVERT")
     assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_ctrl_click", "LEFTMOUSE", ctrl=True, value="CLICK")
+    assert _has_keymap_item(
+        addon_sculpt_keymap,
+        "sculpt.brush_stroke",
+        "LEFTMOUSE",
+        ctrl=True,
+        value="CLICK_DRAG",
+        mode="NORMAL",
+        brush_toggle="MASK",
+    )
+    assert _has_keymap_item(
+        addon_sculpt_keymap,
+        "sculpt.brush_stroke",
+        "LEFTMOUSE",
+        ctrl=True,
+        alt=True,
+        value="CLICK_DRAG",
+        mode="INVERT",
+        brush_toggle="MASK",
+    )
     assert not _has_user_plugin_items(user_keyconfig), "Legacy user keymap items were not cleaned"
+
+    settings = bpy.context.window_manager.zbrush_navigation_settings
+    settings.mask_input_mode = "LASSO"
+    navigation_state.refresh_zbrush_navigation()
+    addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
+    assert _has_keymap_item(
+        addon_sculpt_keymap,
+        "paint.mask_lasso_gesture",
+        "LEFTMOUSE",
+        ctrl=True,
+        value="CLICK_DRAG",
+        mode="VALUE",
+        float_value=1.0,
+    )
+    assert _has_keymap_item(
+        addon_sculpt_keymap,
+        "paint.mask_lasso_gesture",
+        "LEFTMOUSE",
+        ctrl=True,
+        alt=True,
+        value="CLICK_DRAG",
+        mode="VALUE",
+        float_value=0.0,
+    )
+    assert not _has_keymap_item(
+        addon_sculpt_keymap,
+        "sculpt.brush_stroke",
+        "LEFTMOUSE",
+        ctrl=True,
+        value="CLICK_DRAG",
+        mode="NORMAL",
+        brush_toggle="MASK",
+    )
 
     navigation_state.restore_zbrush_navigation()
     assert not _has_runtime_navigation_items(addon_sculpt_keymap), "Runtime Sculpt keymap items were not removed"
@@ -114,6 +166,8 @@ def _has_keymap_item(
     alt: bool = False,
     value: str = "PRESS",
     mode: str | None = None,
+    brush_toggle: str | None = None,
+    float_value: float | None = None,
 ) -> bool:
     for keymap_item in keymap.keymap_items:
         if keymap_item.idname != idname or keymap_item.type != event_type or keymap_item.value != value:
@@ -122,6 +176,12 @@ def _has_keymap_item(
             continue
         if mode is not None and getattr(keymap_item.properties, "mode", None) != mode:
             continue
+        if brush_toggle is not None and getattr(keymap_item.properties, "brush_toggle", None) != brush_toggle:
+            continue
+        if float_value is not None:
+            item_value = getattr(keymap_item.properties, "value", None)
+            if item_value is None or abs(item_value - float_value) > EPSILON:
+                continue
         return True
     return False
 

@@ -48,6 +48,8 @@ class _KeymapItemSignature:
     direction: str
     map_type: str
     mode: str | None
+    brush_toggle: str | None
+    float_value: float | None
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,7 @@ class _RuntimeState:
     original_emulate_3_button: bool | None = None
     added_keymap_items: list[_AddedKeymapItem] = field(default_factory=list)
     created_keymaps: list[_CreatedKeymap] = field(default_factory=list)
+    mask_input_mode: str | None = None
 
 
 _runtime_state = _RuntimeState()
@@ -111,6 +114,8 @@ def synchronize_navigation_state() -> None:
     should_apply = bool(settings and settings.enable_zbrush_navigation and is_sculpt_mode_active())
     if should_apply and not _runtime_state.applied:
         apply_zbrush_navigation()
+    elif should_apply and _runtime_state.applied:
+        refresh_zbrush_navigation()
     elif not should_apply and _runtime_state.applied:
         restore_zbrush_navigation()
 
@@ -125,6 +130,7 @@ def apply_zbrush_navigation() -> None:
     try:
         _remove_legacy_user_keymap_items()
         _add_zbrush_keymap_items()
+        _runtime_state.mask_input_mode = _get_mask_input_mode()
         preferences.inputs.use_mouse_emulate_3_button = False
         _runtime_state.applied = True
         _show_status_message("ZBrush Navigation: Sculpt Mode override enabled")
@@ -132,6 +138,22 @@ def apply_zbrush_navigation() -> None:
         restore_zbrush_navigation()
         raise RuntimeError("Failed to apply ZBrush Navigation sculpt keymaps") from error
 
+
+
+def refresh_zbrush_navigation() -> None:
+    if not _runtime_state.applied:
+        return
+
+    mask_input_mode = _get_mask_input_mode()
+    if mask_input_mode == _runtime_state.mask_input_mode:
+        return
+
+    _remove_added_items(_runtime_state.added_keymap_items, "runtime")
+    _runtime_state.added_keymap_items.clear()
+    _remove_empty_created_keymaps(_runtime_state.created_keymaps)
+    _runtime_state.created_keymaps.clear()
+    _add_zbrush_keymap_items()
+    _runtime_state.mask_input_mode = mask_input_mode
 
 def restore_zbrush_navigation() -> None:
     preferences = bpy.context.preferences
@@ -148,6 +170,7 @@ def _reset_runtime_state() -> None:
     _runtime_state.original_emulate_3_button = None
     _runtime_state.added_keymap_items.clear()
     _runtime_state.created_keymaps.clear()
+    _runtime_state.mask_input_mode = None
 
 
 def _show_status_message(message: str) -> None:
@@ -191,7 +214,63 @@ def _add_zbrush_keymap_items() -> None:
                 "CLICK",
                 ctrl=True,
             )
+            _add_mask_input_keymap_items(keymap, _get_mask_input_mode())
 
+
+
+def _add_mask_input_keymap_items(keymap: bpy.types.KeyMap, mask_input_mode: str) -> None:
+    if mask_input_mode == "PEN":
+        _add_keymap_item(
+            "addon",
+            keymap,
+            "sculpt.brush_stroke",
+            "LEFTMOUSE",
+            "CLICK_DRAG",
+            ctrl=True,
+            properties={"mode": "NORMAL", "brush_toggle": "MASK"},
+        )
+        _add_keymap_item(
+            "addon",
+            keymap,
+            "sculpt.brush_stroke",
+            "LEFTMOUSE",
+            "CLICK_DRAG",
+            ctrl=True,
+            alt=True,
+            properties={"mode": "INVERT", "brush_toggle": "MASK"},
+        )
+        return
+
+    if mask_input_mode == "LASSO":
+        _add_keymap_item(
+            "addon",
+            keymap,
+            "paint.mask_lasso_gesture",
+            "LEFTMOUSE",
+            "CLICK_DRAG",
+            ctrl=True,
+            properties={"mode": "VALUE", "value": 1.0},
+        )
+        _add_keymap_item(
+            "addon",
+            keymap,
+            "paint.mask_lasso_gesture",
+            "LEFTMOUSE",
+            "CLICK_DRAG",
+            ctrl=True,
+            alt=True,
+            properties={"mode": "VALUE", "value": 0.0},
+        )
+        return
+
+    raise RuntimeError(f"Unsupported mask input mode: {mask_input_mode}")
+
+
+def _get_mask_input_mode() -> str:
+    settings = getattr(bpy.context.window_manager, "zbrush_navigation_settings", None)
+    if settings is None:
+        return "PEN"
+    return settings.mask_input_mode
 
 def _add_keymap_item(
     keyconfig_name: str,
@@ -312,6 +391,8 @@ def _get_keymap_item_signature(keymap_item: bpy.types.KeyMapItem) -> _KeymapItem
         direction=keymap_item.direction,
         map_type=keymap_item.map_type,
         mode=getattr(keymap_item.properties, "mode", None),
+        brush_toggle=getattr(keymap_item.properties, "brush_toggle", None),
+        float_value=getattr(keymap_item.properties, "value", None) if hasattr(keymap_item.properties, "value") else None,
     )
 
 
