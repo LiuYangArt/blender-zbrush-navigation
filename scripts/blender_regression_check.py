@@ -44,9 +44,12 @@ def test_keymaps_are_addon_scoped() -> None:
     assert addon_sculpt_keymap is not None, "Missing add-on Sculpt keymap"
     assert addon_view3d_keymap is not None, "Missing add-on 3D View keymap"
     assert _has_keymap_item(addon_sculpt_keymap, "view3d.view_persportho", "P")
+    assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE")
     assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE", shift=True)
     assert _has_keymap_item(addon_sculpt_keymap, "view3d.zoom", "RIGHTMOUSE", ctrl=True)
     assert _has_keymap_item(addon_sculpt_keymap, "view3d.move", "RIGHTMOUSE", alt=True)
+    assert _has_keymap_item(addon_sculpt_keymap, "sculpt.brush_stroke", "LEFTMOUSE", alt=True, mode="INVERT")
+    assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_ctrl_click", "LEFTMOUSE", ctrl=True, value="CLICK")
     assert not _has_user_plugin_items(user_keyconfig), "Legacy user keymap items were not cleaned"
 
     navigation_state.restore_zbrush_navigation()
@@ -109,12 +112,17 @@ def _has_keymap_item(
     shift: bool = False,
     ctrl: bool = False,
     alt: bool = False,
+    value: str = "PRESS",
+    mode: str | None = None,
 ) -> bool:
     for keymap_item in keymap.keymap_items:
-        if keymap_item.idname != idname or keymap_item.type != event_type:
+        if keymap_item.idname != idname or keymap_item.type != event_type or keymap_item.value != value:
             continue
-        if bool(keymap_item.shift) == shift and bool(keymap_item.ctrl) == ctrl and bool(keymap_item.alt) == alt:
-            return True
+        if bool(keymap_item.shift) != shift or bool(keymap_item.ctrl) != ctrl or bool(keymap_item.alt) != alt:
+            continue
+        if mode is not None and getattr(keymap_item.properties, "mode", None) != mode:
+            continue
+        return True
     return False
 
 
@@ -128,8 +136,14 @@ def _has_user_plugin_items(keyconfig) -> bool:
 
 
 def _has_runtime_navigation_items(keymap) -> bool:
-    runtime_idnames = {"zbrush_navigation.zbrush_rotate_modal", "view3d.zoom", "view3d.move"}
-    return any(keymap_item.idname in runtime_idnames and keymap_item.type == "RIGHTMOUSE" for keymap_item in keymap.keymap_items)
+    runtime_idnames = {
+        "zbrush_navigation.zbrush_rotate_modal",
+        "zbrush_navigation.mask_ctrl_click",
+        "sculpt.brush_stroke",
+        "view3d.zoom",
+        "view3d.move",
+    }
+    return any(keymap_item.idname in runtime_idnames for keymap_item in keymap.keymap_items)
 
 
 class _Region3D:

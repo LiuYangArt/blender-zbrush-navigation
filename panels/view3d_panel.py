@@ -22,4 +22,5 @@ class ZNAV_PT_view3d_panel(bpy.types.Panel):
         layout = self.layout
         settings = context.window_manager.zbrush_navigation_settings
         layout.prop(settings, "enable_zbrush_navigation")
+        layout.prop(settings, "mask_input_mode", expand=True)
         layout.operator("zbrush_navigation.report_status", icon="INFO")

@@ -47,6 +47,7 @@ class _KeymapItemSignature:
     key_modifier: str
     direction: str
     map_type: str
+    mode: str | None
 
 
 @dataclass(frozen=True)
@@ -173,6 +174,23 @@ def _add_zbrush_keymap_items() -> None:
         _add_keymap_item("addon", keymap, "view3d.move", "RIGHTMOUSE", "PRESS", alt=True)
         if keymap_name == SCULPT_KEYMAP_NAME:
             _add_keymap_item("addon", keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE", "PRESS", shift=True)
+            _add_keymap_item(
+                "addon",
+                keymap,
+                "sculpt.brush_stroke",
+                "LEFTMOUSE",
+                "PRESS",
+                alt=True,
+                properties={"mode": "INVERT"},
+            )
+            _add_keymap_item(
+                "addon",
+                keymap,
+                "zbrush_navigation.mask_ctrl_click",
+                "LEFTMOUSE",
+                "CLICK",
+                ctrl=True,
+            )
 
 
 def _add_keymap_item(
@@ -185,13 +203,23 @@ def _add_keymap_item(
     shift: bool = False,
     ctrl: bool = False,
     alt: bool = False,
+    properties: dict[str, object] | None = None,
 ) -> None:
     keymap_item = keymap.keymap_items.new(idname, event_type, value, shift=shift, ctrl=ctrl, alt=alt)
     if hasattr(keymap_item.properties, "use_cursor_init"):
         keymap_item.properties.use_cursor_init = True
+    if properties is not None:
+        _set_keymap_item_properties(keymap_item, properties)
     _runtime_state.added_keymap_items.append(
         _AddedKeymapItem(_KeymapLocation(keyconfig_name, keymap.name), _get_keymap_item_signature(keymap_item))
     )
+
+
+def _set_keymap_item_properties(keymap_item: bpy.types.KeyMapItem, properties: dict[str, object]) -> None:
+    for name, value in properties.items():
+        if not hasattr(keymap_item.properties, name):
+            raise RuntimeError(f"Keymap item {keymap_item.idname} has no property {name}")
+        setattr(keymap_item.properties, name, value)
 
 
 def _remove_added_items(added_items: list[_AddedKeymapItem], label: str) -> None:
@@ -283,6 +311,7 @@ def _get_keymap_item_signature(keymap_item: bpy.types.KeyMapItem) -> _KeymapItem
         key_modifier=keymap_item.key_modifier,
         direction=keymap_item.direction,
         map_type=keymap_item.map_type,
+        mode=getattr(keymap_item.properties, "mode", None),
     )
 
 
