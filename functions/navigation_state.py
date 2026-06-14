@@ -223,6 +223,25 @@ def _add_mask_input_keymap_items(keymap: bpy.types.KeyMap, mask_input_mode: str)
         _add_keymap_item(
             "addon",
             keymap,
+            "zbrush_navigation.mask_pen_input",
+            "LEFTMOUSE",
+            "PRESS",
+            ctrl=True,
+            properties={"value": 1.0},
+        )
+        _add_keymap_item(
+            "addon",
+            keymap,
+            "zbrush_navigation.mask_pen_input",
+            "LEFTMOUSE",
+            "PRESS",
+            ctrl=True,
+            alt=True,
+            properties={"value": 0.0},
+        )
+        _add_keymap_item(
+            "addon",
+            keymap,
             "sculpt.brush_stroke",
             "LEFTMOUSE",
             "CLICK_DRAG",
@@ -272,6 +291,8 @@ def _get_mask_input_mode() -> str:
         return "PEN"
     return settings.mask_input_mode
 
+
+
 def _add_keymap_item(
     keyconfig_name: str,
     keymap: bpy.types.KeyMap,
@@ -283,13 +304,15 @@ def _add_keymap_item(
     ctrl: bool = False,
     alt: bool = False,
     properties: dict[str, object] | None = None,
+    store: list[_AddedKeymapItem] | None = None,
 ) -> None:
     keymap_item = keymap.keymap_items.new(idname, event_type, value, shift=shift, ctrl=ctrl, alt=alt)
     if hasattr(keymap_item.properties, "use_cursor_init"):
         keymap_item.properties.use_cursor_init = True
     if properties is not None:
         _set_keymap_item_properties(keymap_item, properties)
-    _runtime_state.added_keymap_items.append(
+    target_store = _runtime_state.added_keymap_items if store is None else store
+    target_store.append(
         _AddedKeymapItem(_KeymapLocation(keyconfig_name, keymap.name), _get_keymap_item_signature(keymap_item))
     )
 

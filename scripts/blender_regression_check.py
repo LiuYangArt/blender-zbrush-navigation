@@ -52,6 +52,21 @@ def test_keymaps_are_addon_scoped() -> None:
     assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_ctrl_click", "LEFTMOUSE", ctrl=True, value="CLICK")
     assert _has_keymap_item(
         addon_sculpt_keymap,
+        "zbrush_navigation.mask_pen_input",
+        "LEFTMOUSE",
+        ctrl=True,
+        float_value=1.0,
+    )
+    assert _has_keymap_item(
+        addon_sculpt_keymap,
+        "zbrush_navigation.mask_pen_input",
+        "LEFTMOUSE",
+        ctrl=True,
+        alt=True,
+        float_value=0.0,
+    )
+    assert _has_keymap_item(
+        addon_sculpt_keymap,
         "sculpt.brush_stroke",
         "LEFTMOUSE",
         ctrl=True,
@@ -199,6 +214,8 @@ def _has_runtime_navigation_items(keymap) -> bool:
     runtime_idnames = {
         "zbrush_navigation.zbrush_rotate_modal",
         "zbrush_navigation.mask_ctrl_click",
+        "zbrush_navigation.mask_pen_input",
+        "paint.mask_lasso_gesture",
         "sculpt.brush_stroke",
         "view3d.zoom",
         "view3d.move",

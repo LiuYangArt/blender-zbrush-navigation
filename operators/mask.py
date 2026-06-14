@@ -12,13 +12,41 @@ class ZNAV_OT_mask_ctrl_click(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == "SCULPT" and context.active_object is not None
+        return _can_use_sculpt_mask(context)
 
     def invoke(self, context, event):
         if _event_hits_active_object(context, event):
             return {"PASS_THROUGH"}
         bpy.ops.paint.mask_flood_fill(mode="INVERT")
         return {"FINISHED"}
+
+
+class ZNAV_OT_mask_pen_input(bpy.types.Operator):
+    bl_idname = "zbrush_navigation.mask_pen_input"
+    bl_label = "ZBrush Mask Pen Input"
+    bl_description = "Use brush mask on-object and native box mask when dragging from outside the sculpt object"
+    bl_options = {"REGISTER", "UNDO"}
+
+    value: bpy.props.FloatProperty(default=1.0)
+
+    @classmethod
+    def poll(cls, context):
+        return _can_use_sculpt_mask(context)
+
+    def invoke(self, context, event):
+        if _event_hits_active_object(context, event):
+            return {"PASS_THROUGH"}
+        return bpy.ops.paint.mask_box_gesture("INVOKE_DEFAULT", mode="VALUE", value=self.value)
+
+
+def _can_use_sculpt_mask(context) -> bool:
+    space_data = getattr(context, "space_data", None)
+    return bool(
+        context.mode == "SCULPT"
+        and context.active_object is not None
+        and getattr(space_data, "type", None) == "VIEW_3D"
+        and getattr(space_data, "region_3d", None) is not None
+    )
 
 
 def _event_hits_active_object(context, event) -> bool:
