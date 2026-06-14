@@ -1,0 +1,24 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Blender backup files
+*.blend1
+*.blend2
+*.blend@
+*.blend~
+
+# Blender extension/package outputs
+*.zip
+build/
+dist/
+
+# Local editor files
+.vscode/
+.idea/

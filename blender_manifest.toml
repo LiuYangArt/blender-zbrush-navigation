@@ -1,0 +1,15 @@
+schema_version = "1.0.0"
+
+id = "zbrush_navigation"
+version = "0.1.0"
+name = "ZBrush Navigation"
+tagline = "ZBrush-style navigation tools for Blender"
+maintainer = "LiuYang"
+type = "add-on"
+
+tags = ["3D View", "User Interface"]
+blender_version_min = "5.0.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
