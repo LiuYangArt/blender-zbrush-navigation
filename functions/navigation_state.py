@@ -85,6 +85,8 @@ class _RuntimeState:
 
 
 _runtime_state = _RuntimeState()
+_static_added_keymap_items: list[_AddedKeymapItem] = []
+_static_created_keymaps: list[_CreatedKeymap] = []
 _timer_enabled = False
 _status_message_token = 0
 
@@ -93,6 +95,46 @@ def format_settings_summary(settings) -> str:
     enabled = "enabled" if settings.enable_zbrush_navigation else "disabled"
     active = "active" if _runtime_state.applied else "inactive"
     return f"ZBrush Navigation is {enabled}; Sculpt override is {active}"
+
+
+def register_static_sculpt_keymaps() -> None:
+    if _static_added_keymap_items:
+        return
+
+    user_keyconfig = bpy.context.window_manager.keyconfigs.user
+    if user_keyconfig is None:
+        raise RuntimeError("Blender user keyconfig is not available")
+
+    sculpt_keymap = _get_existing_keymap(user_keyconfig, SCULPT_KEYMAP_NAME)
+    if sculpt_keymap is None:
+        sculpt_keymap = user_keyconfig.keymaps.new(name=SCULPT_KEYMAP_NAME, space_type="EMPTY", region_type="WINDOW")
+        _static_created_keymaps.append(_CreatedKeymap(_KeymapLocation("user", SCULPT_KEYMAP_NAME)))
+
+    keymap_item = sculpt_keymap.keymap_items.new("view3d.view_persportho", "P", "PRESS")
+    _static_added_keymap_items.append(
+        _AddedKeymapItem(_KeymapLocation("user", sculpt_keymap.name), _get_keymap_item_signature(keymap_item))
+    )
+
+
+def unregister_static_sculpt_keymaps() -> None:
+    for added_item in reversed(_static_added_keymap_items):
+        keymap = _get_runtime_keymap(added_item.location)
+        if keymap is None:
+            print(f"ZBrush Navigation: skipped static removal; keymap not found: {added_item.location}")
+            continue
+        removed = _remove_first_matching_keymap_item(keymap, added_item.signature)
+        if not removed:
+            print(f"ZBrush Navigation: skipped static removal; keymap item already gone: {added_item.location}")
+    _static_added_keymap_items.clear()
+
+    for created_keymap in reversed(_static_created_keymaps):
+        keyconfig = getattr(bpy.context.window_manager.keyconfigs, created_keymap.location.keyconfig_name, None)
+        if keyconfig is None:
+            continue
+        keymap = _get_existing_keymap(keyconfig, created_keymap.location.keymap_name)
+        if keymap is not None and len(keymap.keymap_items) == 0:
+            keyconfig.keymaps.remove(keymap)
+    _static_created_keymaps.clear()
 
 
 def is_sculpt_mode_active() -> bool:
@@ -213,6 +255,15 @@ def _add_zbrush_keymap_items() -> None:
         _add_keymap_item("user", keymap, "view3d.rotate", "RIGHTMOUSE", "PRESS")
         _add_keymap_item("user", keymap, "view3d.zoom", "RIGHTMOUSE", "PRESS", ctrl=True)
         _add_keymap_item("user", keymap, "view3d.move", "RIGHTMOUSE", "PRESS", alt=True)
+        if keymap_name == SCULPT_KEYMAP_NAME:
+            _add_keymap_item(
+                "user",
+                keymap,
+                "zbrush_navigation.snap_view_to_nearest_axis",
+                "RIGHTMOUSE",
+                "PRESS",
+                shift=True,
+            )
 
     rotate_modal_keymap = _get_existing_keymap(user_keyconfig, VIEW3D_ROTATE_MODAL_KEYMAP_NAME)
     if rotate_modal_keymap is not None and _has_axis_snap_modal_items(rotate_modal_keymap):
@@ -457,6 +508,7 @@ def _restore_on_load_pre(_dummy):
 
 def register():
     global _timer_enabled
+    register_static_sculpt_keymaps()
     _timer_enabled = True
     if not bpy.app.timers.is_registered(_navigation_mode_timer):
         bpy.app.timers.register(_navigation_mode_timer, first_interval=TIMER_INTERVAL_SECONDS, persistent=True)
@@ -473,3 +525,4 @@ def unregister():
         bpy.app.handlers.load_pre.remove(_restore_on_load_pre)
     if _runtime_state.applied:
         restore_zbrush_navigation()
+    unregister_static_sculpt_keymaps()
