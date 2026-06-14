@@ -48,3 +48,23 @@
 - Blender 5.1.2 background empty rotate modal apply/restore script.
 - Blender 5.1.2 background existing rotate modal apply/restore script.
 - Blender 5.1.2 background Sculpt/Object mode transition script.
+
+## Follow-up: Native Rotate Shift Snap Missing
+
+### Symptom
+- In the hybrid mode, `RMB drag` used Blender native `view3d.rotate`, but pressing Shift during that native rotate did not trigger axis snap.
+- Binding `Shift + RMB` to the add-on snap operator was not enough because Blender's native rotate modal consumes Shift internally after `view3d.rotate` starts.
+
+### Root Cause
+- Native `view3d.rotate` reads snap behavior from the `View3D Rotate Modal` keymap, not from the regular Sculpt/View3D RMB keymaps.
+- The user's modal keymap had Axis Snap bound to Alt, so Shift had no effect during native rotate.
+
+### Fix
+- While hybrid Sculpt navigation is active, snapshot the user `View3D Rotate Modal` Axis Snap rows.
+- Replace only `AXIS_SNAP_ENABLE` / `AXIS_SNAP_DISABLE` modal rows with Left/Right Shift press/release rows.
+- Restore the snapshot when leaving Sculpt Mode, disabling the add-on, switching back to ZBrush-style rotate, or unregistering.
+
+### Regression Checks
+- `python scripts\validate_addon.py`
+- `python scripts\blender_regression_check.py`
+- `git diff --check`

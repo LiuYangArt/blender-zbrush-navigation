@@ -10,6 +10,14 @@ TIMER_INTERVAL_SECONDS = 0.25
 VIEW3D_KEYMAP_NAME = "3D View"
 SCULPT_KEYMAP_NAME = "Sculpt"
 NAVIGATION_KEYMAP_NAMES = (VIEW3D_KEYMAP_NAME, SCULPT_KEYMAP_NAME)
+ROTATE_MODAL_KEYMAP_NAME = "View3D Rotate Modal"
+ROTATE_MODAL_AXIS_SNAP_PROPVALUES = {"AXIS_SNAP_ENABLE", "AXIS_SNAP_DISABLE"}
+SHIFT_ROTATE_MODAL_AXIS_SNAP_ITEMS = (
+    ("AXIS_SNAP_ENABLE", "LEFT_SHIFT", "PRESS"),
+    ("AXIS_SNAP_DISABLE", "LEFT_SHIFT", "RELEASE"),
+    ("AXIS_SNAP_ENABLE", "RIGHT_SHIFT", "PRESS"),
+    ("AXIS_SNAP_DISABLE", "RIGHT_SHIFT", "RELEASE"),
+)
 STATUS_MESSAGE_DURATION_SECONDS = 2.5
 LEGACY_USER_KEYMAP_IDNAMES = {
     "zbrush_navigation.zbrush_rotate_modal",
@@ -63,13 +71,22 @@ class _CreatedKeymap:
     location: _KeymapLocation
 
 
+@dataclass(frozen=True)
+class _ModalKeymapItemSnapshot:
+    signature: _KeymapItemSignature
+    active: bool
+
+
 @dataclass
 class _RuntimeState:
     applied: bool = False
     original_emulate_3_button: bool | None = None
+    original_use_rotate_around_active: bool | None = None
     added_keymap_items: list[_AddedKeymapItem] = field(default_factory=list)
     created_keymaps: list[_CreatedKeymap] = field(default_factory=list)
     mask_input_mode: str | None = None
+    use_zbrush_style_rotate: bool | None = None
+    original_rotate_modal_axis_snap_items: list[_ModalKeymapItemSnapshot] | None = None
 
 
 _runtime_state = _RuntimeState()
@@ -126,12 +143,16 @@ def apply_zbrush_navigation() -> None:
 
     preferences = bpy.context.preferences
     _runtime_state.original_emulate_3_button = preferences.inputs.use_mouse_emulate_3_button
+    _runtime_state.original_use_rotate_around_active = preferences.inputs.use_rotate_around_active
 
     try:
         _remove_legacy_user_keymap_items()
         _add_zbrush_keymap_items()
         _runtime_state.mask_input_mode = _get_mask_input_mode()
+        _runtime_state.use_zbrush_style_rotate = _use_zbrush_style_rotate()
         preferences.inputs.use_mouse_emulate_3_button = False
+        _sync_rotate_around_active_preference(_runtime_state.use_zbrush_style_rotate)
+        _sync_rotate_modal_axis_snap_keymap(_runtime_state.use_zbrush_style_rotate)
         _runtime_state.applied = True
         _show_status_message("ZBrush Navigation: Sculpt Mode override enabled")
     except Exception as error:
@@ -139,21 +160,27 @@ def apply_zbrush_navigation() -> None:
         raise RuntimeError("Failed to apply ZBrush Navigation sculpt keymaps") from error
 
 
-
 def refresh_zbrush_navigation() -> None:
     if not _runtime_state.applied:
         return
 
     mask_input_mode = _get_mask_input_mode()
-    if mask_input_mode == _runtime_state.mask_input_mode:
+    use_zbrush_style_rotate = _use_zbrush_style_rotate()
+    if (
+        mask_input_mode == _runtime_state.mask_input_mode
+        and use_zbrush_style_rotate == _runtime_state.use_zbrush_style_rotate
+    ):
         return
 
     _remove_added_items(_runtime_state.added_keymap_items, "runtime")
     _runtime_state.added_keymap_items.clear()
     _remove_empty_created_keymaps(_runtime_state.created_keymaps)
     _runtime_state.created_keymaps.clear()
+    _sync_rotate_around_active_preference(use_zbrush_style_rotate)
+    _sync_rotate_modal_axis_snap_keymap(use_zbrush_style_rotate)
     _add_zbrush_keymap_items()
     _runtime_state.mask_input_mode = mask_input_mode
+    _runtime_state.use_zbrush_style_rotate = use_zbrush_style_rotate
 
 def restore_zbrush_navigation() -> None:
     preferences = bpy.context.preferences
@@ -161,6 +188,9 @@ def restore_zbrush_navigation() -> None:
     _remove_empty_created_keymaps(_runtime_state.created_keymaps)
     if _runtime_state.original_emulate_3_button is not None:
         preferences.inputs.use_mouse_emulate_3_button = _runtime_state.original_emulate_3_button
+    if _runtime_state.original_use_rotate_around_active is not None:
+        preferences.inputs.use_rotate_around_active = _runtime_state.original_use_rotate_around_active
+    _restore_rotate_modal_axis_snap_keymap()
     _show_status_message("ZBrush Navigation: original navigation restored")
     _reset_runtime_state()
 
@@ -168,9 +198,13 @@ def restore_zbrush_navigation() -> None:
 def _reset_runtime_state() -> None:
     _runtime_state.applied = False
     _runtime_state.original_emulate_3_button = None
+    _runtime_state.original_use_rotate_around_active = None
     _runtime_state.added_keymap_items.clear()
     _runtime_state.created_keymaps.clear()
     _runtime_state.mask_input_mode = None
+    _runtime_state.use_zbrush_style_rotate = None
+    _runtime_state.original_rotate_modal_axis_snap_items = None
+
 
 
 def _show_status_message(message: str) -> None:
@@ -190,13 +224,21 @@ def _show_status_message(message: str) -> None:
 
 def _add_zbrush_keymap_items() -> None:
     addon_keyconfig = _get_addon_keyconfig()
+    use_zbrush_style_rotate = _use_zbrush_style_rotate()
+    rotate_operator = "zbrush_navigation.zbrush_rotate_modal" if use_zbrush_style_rotate else "view3d.rotate"
+    snap_operator = (
+        "zbrush_navigation.zbrush_rotate_modal"
+        if use_zbrush_style_rotate
+        else "zbrush_navigation.snap_view_to_nearest_axis"
+    )
+
     for keymap_name in NAVIGATION_KEYMAP_NAMES:
         keymap = _get_or_create_runtime_keymap(addon_keyconfig, keymap_name, space_type=_space_type_for_keymap(keymap_name))
-        _add_keymap_item("addon", keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE", "PRESS")
+        _add_keymap_item("addon", keymap, rotate_operator, "RIGHTMOUSE", "PRESS")
         _add_keymap_item("addon", keymap, "view3d.zoom", "RIGHTMOUSE", "PRESS", ctrl=True)
         _add_keymap_item("addon", keymap, "view3d.move", "RIGHTMOUSE", "PRESS", alt=True)
         if keymap_name == SCULPT_KEYMAP_NAME:
-            _add_keymap_item("addon", keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE", "PRESS", shift=True)
+            _add_keymap_item("addon", keymap, snap_operator, "RIGHTMOUSE", "PRESS", shift=True)
             _add_keymap_item(
                 "addon",
                 keymap,
@@ -215,7 +257,6 @@ def _add_zbrush_keymap_items() -> None:
                 ctrl=True,
             )
             _add_mask_input_keymap_items(keymap, _get_mask_input_mode())
-
 
 
 def _add_mask_input_keymap_items(keymap: bpy.types.KeyMap, mask_input_mode: str) -> None:
@@ -290,6 +331,92 @@ def _get_mask_input_mode() -> str:
     if settings is None:
         return "PEN"
     return settings.mask_input_mode
+
+
+def _use_zbrush_style_rotate() -> bool:
+    addon = bpy.context.preferences.addons.get(__package__.rsplit(".", 1)[0])
+    if addon is None:
+        raise RuntimeError("Cannot find ZBrush Navigation add-on preferences")
+    return addon.preferences.use_zbrush_style_rotate
+
+
+def _sync_rotate_around_active_preference(use_zbrush_style_rotate: bool) -> None:
+    if _runtime_state.original_use_rotate_around_active is None:
+        raise RuntimeError("Cannot sync rotate-around-active before original preference is recorded")
+
+    bpy.context.preferences.inputs.use_rotate_around_active = (
+        _runtime_state.original_use_rotate_around_active if use_zbrush_style_rotate else True
+    )
+
+
+def _sync_rotate_modal_axis_snap_keymap(use_zbrush_style_rotate: bool) -> None:
+    if use_zbrush_style_rotate:
+        _restore_rotate_modal_axis_snap_keymap()
+        return
+
+    user_keyconfig = bpy.context.window_manager.keyconfigs.user
+    if user_keyconfig is None:
+        raise RuntimeError("Blender user keyconfig is not available")
+
+    keymap = user_keyconfig.keymaps.get(ROTATE_MODAL_KEYMAP_NAME)
+    if keymap is None:
+        return
+
+    axis_snap_items = [
+        keymap_item
+        for keymap_item in keymap.keymap_items
+        if keymap_item.propvalue in ROTATE_MODAL_AXIS_SNAP_PROPVALUES
+    ]
+    if not axis_snap_items:
+        return
+
+    if _runtime_state.original_rotate_modal_axis_snap_items is None:
+        _runtime_state.original_rotate_modal_axis_snap_items = [
+            _ModalKeymapItemSnapshot(_get_keymap_item_signature(keymap_item), keymap_item.active)
+            for keymap_item in axis_snap_items
+        ]
+
+    _remove_rotate_modal_axis_snap_items(keymap)
+    for propvalue, event_type, value in SHIFT_ROTATE_MODAL_AXIS_SNAP_ITEMS:
+        keymap.keymap_items.new_modal(propvalue, event_type, value)
+
+
+def _restore_rotate_modal_axis_snap_keymap() -> None:
+    snapshots = _runtime_state.original_rotate_modal_axis_snap_items
+    if snapshots is None:
+        return
+
+    user_keyconfig = bpy.context.window_manager.keyconfigs.user
+    if user_keyconfig is None:
+        raise RuntimeError("Blender user keyconfig is not available")
+
+    keymap = user_keyconfig.keymaps.get(ROTATE_MODAL_KEYMAP_NAME)
+    if keymap is None:
+        raise RuntimeError(f"Cannot restore missing keymap: {ROTATE_MODAL_KEYMAP_NAME}")
+
+    _remove_rotate_modal_axis_snap_items(keymap)
+    for snapshot in snapshots:
+        keymap_item = keymap.keymap_items.new_modal(
+            snapshot.signature.propvalue,
+            snapshot.signature.type,
+            snapshot.signature.value,
+            any=snapshot.signature.any,
+            shift=snapshot.signature.shift,
+            ctrl=snapshot.signature.ctrl,
+            alt=snapshot.signature.alt,
+            oskey=snapshot.signature.oskey,
+            key_modifier=snapshot.signature.key_modifier,
+            direction=snapshot.signature.direction,
+        )
+        keymap_item.active = snapshot.active
+
+
+
+
+def _remove_rotate_modal_axis_snap_items(keymap: bpy.types.KeyMap) -> None:
+    for keymap_item in reversed(list(keymap.keymap_items)):
+        if keymap_item.propvalue in ROTATE_MODAL_AXIS_SNAP_PROPVALUES:
+            keymap.keymap_items.remove(keymap_item)
 
 
 

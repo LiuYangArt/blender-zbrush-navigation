@@ -33,96 +33,135 @@ def test_keymaps_are_addon_scoped() -> None:
 
     keyconfigs = bpy.context.window_manager.keyconfigs
     user_keyconfig = keyconfigs.user
-    legacy_sculpt_keymap = user_keyconfig.keymaps.new(name="Sculpt", space_type="EMPTY", region_type="WINDOW")
-    legacy_sculpt_keymap.keymap_items.new("zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE", "PRESS")
-    legacy_sculpt_keymap.keymap_items.new("view3d.zoom", "RIGHTMOUSE", "PRESS", ctrl=True)
+    addon_preferences = _get_addon_preferences()
+    input_preferences = bpy.context.preferences.inputs
+    original_emulate_3_button = input_preferences.use_mouse_emulate_3_button
+    original_rotate_around_active = input_preferences.use_rotate_around_active
 
-    navigation_state.apply_zbrush_navigation()
-    settings = bpy.context.window_manager.zbrush_navigation_settings
-    assert settings.pen_outside_drag_mode == "LASSO"
-    addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
-    addon_view3d_keymap = keyconfigs.addon.keymaps.get("3D View")
+    try:
+        addon_preferences.use_zbrush_style_rotate = False
+        input_preferences.use_mouse_emulate_3_button = True
+        input_preferences.use_rotate_around_active = False
+        legacy_sculpt_keymap = user_keyconfig.keymaps.new(name="Sculpt", space_type="EMPTY", region_type="WINDOW")
+        legacy_sculpt_keymap.keymap_items.new("zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE", "PRESS")
+        legacy_sculpt_keymap.keymap_items.new("view3d.zoom", "RIGHTMOUSE", "PRESS", ctrl=True)
+        rotate_modal_keymap = _get_or_create_user_rotate_modal_keymap(user_keyconfig)
+        _remove_rotate_modal_axis_snap_items(rotate_modal_keymap)
+        rotate_modal_keymap.keymap_items.new_modal("AXIS_SNAP_ENABLE", "LEFT_ALT", "PRESS")
+        rotate_modal_keymap.keymap_items.new_modal("AXIS_SNAP_DISABLE", "LEFT_ALT", "RELEASE")
 
-    assert addon_sculpt_keymap is not None, "Missing add-on Sculpt keymap"
-    assert addon_view3d_keymap is not None, "Missing add-on 3D View keymap"
-    assert _has_keymap_item(addon_sculpt_keymap, "view3d.view_persportho", "P")
-    assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE")
-    assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE", shift=True)
-    assert _has_keymap_item(addon_sculpt_keymap, "view3d.zoom", "RIGHTMOUSE", ctrl=True)
-    assert _has_keymap_item(addon_sculpt_keymap, "view3d.move", "RIGHTMOUSE", alt=True)
-    assert _has_keymap_item(addon_sculpt_keymap, "sculpt.brush_stroke", "LEFTMOUSE", alt=True, mode="INVERT")
-    assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_ctrl_click", "LEFTMOUSE", ctrl=True, value="CLICK")
-    assert _has_keymap_item(
-        addon_sculpt_keymap,
-        "zbrush_navigation.mask_pen_input",
-        "LEFTMOUSE",
-        ctrl=True,
-        float_value=1.0,
-    )
-    assert _has_keymap_item(
-        addon_sculpt_keymap,
-        "zbrush_navigation.mask_pen_input",
-        "LEFTMOUSE",
-        ctrl=True,
-        alt=True,
-        float_value=0.0,
-    )
-    assert _has_keymap_item(
-        addon_sculpt_keymap,
-        "sculpt.brush_stroke",
-        "LEFTMOUSE",
-        ctrl=True,
-        value="CLICK_DRAG",
-        mode="NORMAL",
-        brush_toggle="MASK",
-    )
-    assert _has_keymap_item(
-        addon_sculpt_keymap,
-        "sculpt.brush_stroke",
-        "LEFTMOUSE",
-        ctrl=True,
-        alt=True,
-        value="CLICK_DRAG",
-        mode="INVERT",
-        brush_toggle="MASK",
-    )
-    assert not _has_user_plugin_items(user_keyconfig), "Legacy user keymap items were not cleaned"
+        navigation_state.apply_zbrush_navigation()
+        settings = bpy.context.window_manager.zbrush_navigation_settings
+        assert settings.pen_outside_drag_mode == "LASSO"
+        assert input_preferences.use_mouse_emulate_3_button is False
+        assert input_preferences.use_rotate_around_active is True
+        addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
+        addon_view3d_keymap = keyconfigs.addon.keymaps.get("3D View")
 
-    settings.mask_input_mode = "LASSO"
-    navigation_state.refresh_zbrush_navigation()
-    addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
-    assert _has_keymap_item(
-        addon_sculpt_keymap,
-        "paint.mask_lasso_gesture",
-        "LEFTMOUSE",
-        ctrl=True,
-        value="CLICK_DRAG",
-        mode="VALUE",
-        float_value=1.0,
-    )
-    assert _has_keymap_item(
-        addon_sculpt_keymap,
-        "paint.mask_lasso_gesture",
-        "LEFTMOUSE",
-        ctrl=True,
-        alt=True,
-        value="CLICK_DRAG",
-        mode="VALUE",
-        float_value=0.0,
-    )
-    assert not _has_keymap_item(
-        addon_sculpt_keymap,
-        "sculpt.brush_stroke",
-        "LEFTMOUSE",
-        ctrl=True,
-        value="CLICK_DRAG",
-        mode="NORMAL",
-        brush_toggle="MASK",
-    )
+        assert addon_sculpt_keymap is not None, "Missing add-on Sculpt keymap"
+        assert addon_view3d_keymap is not None, "Missing add-on 3D View keymap"
+        assert _has_keymap_item(addon_sculpt_keymap, "view3d.view_persportho", "P")
+        assert _has_keymap_item(addon_sculpt_keymap, "view3d.rotate", "RIGHTMOUSE")
+        assert not _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE")
+        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.snap_view_to_nearest_axis", "RIGHTMOUSE", shift=True)
+        assert _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_ENABLE", "LEFT_SHIFT", "PRESS")
+        assert _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_DISABLE", "LEFT_SHIFT", "RELEASE")
+        assert _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_ENABLE", "RIGHT_SHIFT", "PRESS")
+        assert _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_DISABLE", "RIGHT_SHIFT", "RELEASE")
+        assert not _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_ENABLE", "LEFT_ALT", "PRESS")
+        assert _has_keymap_item(addon_sculpt_keymap, "view3d.zoom", "RIGHTMOUSE", ctrl=True)
+        assert _has_keymap_item(addon_sculpt_keymap, "view3d.move", "RIGHTMOUSE", alt=True)
+        assert _has_keymap_item(addon_sculpt_keymap, "sculpt.brush_stroke", "LEFTMOUSE", alt=True, mode="INVERT")
+        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_ctrl_click", "LEFTMOUSE", ctrl=True, value="CLICK")
+        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_pen_input", "LEFTMOUSE", ctrl=True, float_value=1.0)
+        assert _has_keymap_item(
+            addon_sculpt_keymap,
+            "zbrush_navigation.mask_pen_input",
+            "LEFTMOUSE",
+            ctrl=True,
+            alt=True,
+            float_value=0.0,
+        )
+        assert _has_keymap_item(
+            addon_sculpt_keymap,
+            "sculpt.brush_stroke",
+            "LEFTMOUSE",
+            ctrl=True,
+            value="CLICK_DRAG",
+            mode="NORMAL",
+            brush_toggle="MASK",
+        )
+        assert _has_keymap_item(
+            addon_sculpt_keymap,
+            "sculpt.brush_stroke",
+            "LEFTMOUSE",
+            ctrl=True,
+            alt=True,
+            value="CLICK_DRAG",
+            mode="INVERT",
+            brush_toggle="MASK",
+        )
+        assert not _has_user_plugin_items(user_keyconfig), "Legacy user keymap items were not cleaned"
 
-    navigation_state.restore_zbrush_navigation()
-    assert not _has_runtime_navigation_items(addon_sculpt_keymap), "Runtime Sculpt keymap items were not removed"
-    assert not _has_runtime_navigation_items(addon_view3d_keymap), "Runtime 3D View keymap items were not removed"
+        settings.mask_input_mode = "LASSO"
+        navigation_state.refresh_zbrush_navigation()
+        addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
+        assert _has_keymap_item(addon_sculpt_keymap, "view3d.rotate", "RIGHTMOUSE")
+        assert _has_keymap_item(
+            addon_sculpt_keymap,
+            "paint.mask_lasso_gesture",
+            "LEFTMOUSE",
+            ctrl=True,
+            value="CLICK_DRAG",
+            mode="VALUE",
+            float_value=1.0,
+        )
+        assert _has_keymap_item(
+            addon_sculpt_keymap,
+            "paint.mask_lasso_gesture",
+            "LEFTMOUSE",
+            ctrl=True,
+            alt=True,
+            value="CLICK_DRAG",
+            mode="VALUE",
+            float_value=0.0,
+        )
+        assert not _has_keymap_item(
+            addon_sculpt_keymap,
+            "sculpt.brush_stroke",
+            "LEFTMOUSE",
+            ctrl=True,
+            value="CLICK_DRAG",
+            mode="NORMAL",
+            brush_toggle="MASK",
+        )
+
+        addon_preferences.use_zbrush_style_rotate = True
+        navigation_state.refresh_zbrush_navigation()
+        addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
+        assert input_preferences.use_rotate_around_active is False
+        assert _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_ENABLE", "LEFT_ALT", "PRESS")
+        assert _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_DISABLE", "LEFT_ALT", "RELEASE")
+        assert not _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_ENABLE", "LEFT_SHIFT", "PRESS")
+        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE")
+        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE", shift=True)
+        assert not _has_keymap_item(addon_sculpt_keymap, "view3d.rotate", "RIGHTMOUSE")
+
+        navigation_state.restore_zbrush_navigation()
+        assert input_preferences.use_mouse_emulate_3_button is True
+        assert input_preferences.use_rotate_around_active is False
+        assert _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_ENABLE", "LEFT_ALT", "PRESS")
+        assert _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_DISABLE", "LEFT_ALT", "RELEASE")
+        assert not _has_runtime_navigation_items(addon_sculpt_keymap), "Runtime Sculpt keymap items were not removed"
+        assert not _has_runtime_navigation_items(addon_view3d_keymap), "Runtime 3D View keymap items were not removed"
+    finally:
+        if navigation_state._runtime_state.applied:
+            navigation_state.restore_zbrush_navigation()
+        if "rotate_modal_keymap" in locals():
+            _remove_rotate_modal_axis_snap_items(rotate_modal_keymap)
+        addon_preferences.use_zbrush_style_rotate = False
+        input_preferences.use_mouse_emulate_3_button = original_emulate_3_button
+        input_preferences.use_rotate_around_active = original_rotate_around_active
 
 
 def test_snap_keeps_projection() -> None:
@@ -172,6 +211,30 @@ def test_active_object_center() -> None:
     assert (center - Vector((3.0, 4.0, 5.0))).length < EPSILON
 
 
+def _get_addon_preferences():
+    addon = bpy.context.preferences.addons.get(ADDON_MODULE)
+    assert addon is not None, "Missing add-on preferences"
+    return addon.preferences
+
+def _get_or_create_user_rotate_modal_keymap(user_keyconfig):
+    keymap = user_keyconfig.keymaps.get("View3D Rotate Modal")
+    if keymap is not None:
+        return keymap
+    return user_keyconfig.keymaps.new(name="View3D Rotate Modal", modal=True)
+
+
+def _remove_rotate_modal_axis_snap_items(keymap) -> None:
+    for keymap_item in reversed(list(keymap.keymap_items)):
+        if keymap_item.propvalue in {"AXIS_SNAP_ENABLE", "AXIS_SNAP_DISABLE"}:
+            keymap.keymap_items.remove(keymap_item)
+
+
+def _has_modal_keymap_item(keymap, propvalue: str, event_type: str, value: str) -> bool:
+    for keymap_item in keymap.keymap_items:
+        if keymap_item.propvalue == propvalue and keymap_item.type == event_type and keymap_item.value == value:
+            return True
+    return False
+
 def _has_keymap_item(
     keymap,
     idname: str,
@@ -214,10 +277,12 @@ def _has_user_plugin_items(keyconfig) -> bool:
 def _has_runtime_navigation_items(keymap) -> bool:
     runtime_idnames = {
         "zbrush_navigation.zbrush_rotate_modal",
+        "zbrush_navigation.snap_view_to_nearest_axis",
         "zbrush_navigation.mask_ctrl_click",
         "zbrush_navigation.mask_pen_input",
         "paint.mask_lasso_gesture",
         "sculpt.brush_stroke",
+        "view3d.rotate",
         "view3d.zoom",
         "view3d.move",
     }

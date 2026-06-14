@@ -5,6 +5,12 @@ import bpy
 from ..functions.navigation_state import format_settings_summary
 
 
+def _refresh_runtime_navigation_keymaps(self, context) -> None:
+    from ..functions.navigation_state import refresh_zbrush_navigation
+
+    refresh_zbrush_navigation()
+
+
 class ZNAV_AP_preferences(bpy.types.AddonPreferences):
     bl_idname = __package__.rsplit(".", 1)[0]
 
@@ -21,12 +27,19 @@ class ZNAV_AP_preferences(bpy.types.AddonPreferences):
         max=35.0,
         precision=1,
     )
+    use_zbrush_style_rotate: bpy.props.BoolProperty(
+        name="Use ZBrush-Style Rotate",
+        description="Use the add-on's custom RMB rotate instead of Blender native rotate",
+        default=False,
+        update=_refresh_runtime_navigation_keymaps,
+    )
 
     def draw(self, context):
         layout = self.layout
         settings = context.window_manager.zbrush_navigation_settings
         layout.prop(self, "show_sidebar_panel")
         layout.prop(self, "snap_drag_threshold_percent")
+        layout.prop(self, "use_zbrush_style_rotate")
         layout.prop(settings, "enable_zbrush_navigation")
         layout.operator("zbrush_navigation.report_status", icon="INFO")
         layout.label(text=format_settings_summary(settings))
