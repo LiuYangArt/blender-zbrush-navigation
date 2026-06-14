@@ -214,10 +214,13 @@ def _add_zbrush_keymap_items() -> None:
         _add_keymap_item("user", keymap, "view3d.zoom", "RIGHTMOUSE", "PRESS", ctrl=True)
         _add_keymap_item("user", keymap, "view3d.move", "RIGHTMOUSE", "PRESS", alt=True)
 
-    rotate_modal_keymap = _get_or_create_keymap("user", user_keyconfig, VIEW3D_ROTATE_MODAL_KEYMAP_NAME, modal=True)
-    _ensure_default_rotate_modal_items(rotate_modal_keymap)
-    _runtime_state.rotate_modal_snapshot = _serialize_modal_keymap(rotate_modal_keymap)
-    _ensure_shift_axis_snap_modal_items(rotate_modal_keymap)
+    rotate_modal_keymap = _get_existing_keymap(user_keyconfig, VIEW3D_ROTATE_MODAL_KEYMAP_NAME)
+    if rotate_modal_keymap is not None and _has_axis_snap_modal_items(rotate_modal_keymap):
+        original_items = _serialize_modal_keymap(rotate_modal_keymap)
+        _runtime_state.rotate_modal_snapshot = original_items
+        _replace_modal_keymap_items(rotate_modal_keymap, _retarget_axis_snap_modal_items(original_items))
+    else:
+        print("ZBrush Navigation: skipped View3D Rotate Modal retarget; no existing Axis Snap entries")
 
 
 def _add_keymap_item(
@@ -239,76 +242,40 @@ def _add_keymap_item(
     )
 
 
-def _ensure_default_rotate_modal_items(keymap: bpy.types.KeyMap) -> None:
-    defaults = (
-        ("CANCEL", "RIGHTMOUSE", "PRESS", False),
-        ("AXIS_SNAP_ENABLE", "LEFT_ALT", "PRESS", True),
-        ("AXIS_SNAP_DISABLE", "LEFT_ALT", "RELEASE", True),
-        ("AXIS_SNAP_ENABLE", "RIGHT_ALT", "PRESS", True),
-        ("AXIS_SNAP_DISABLE", "RIGHT_ALT", "RELEASE", True),
-    )
-    missing_defaults = [item for item in defaults if _find_modal_keymap_item(keymap, item[0], item[1], item[2]) is None]
-    if not missing_defaults:
-        return
-
-    for keymap_item in reversed(list(keymap.keymap_items)):
-        if _is_shift_axis_snap_modal_item(keymap_item):
-            keymap.keymap_items.remove(keymap_item)
-
-    for propvalue, event_type, value, any_modifier in defaults:
-        if _find_modal_keymap_item(keymap, propvalue, event_type, value) is None:
-            keymap_item = _add_modal_keymap_item(keymap, propvalue, event_type, value, any=any_modifier, track=False)
-            keymap_item.active = True
-    print("ZBrush Navigation: repaired user View3D Rotate Modal keymap")
+AXIS_SNAP_MODAL_PROPVALUES = {"AXIS_SNAP_ENABLE", "AXIS_SNAP_DISABLE"}
+AXIS_SNAP_MODAL_KEY_TYPES = ("LEFT_SHIFT", "RIGHT_SHIFT")
 
 
-def _ensure_shift_axis_snap_modal_items(keymap: bpy.types.KeyMap) -> None:
-    _ensure_modal_keymap_item(keymap, "AXIS_SNAP_ENABLE", "LEFT_SHIFT", "PRESS")
-    _ensure_modal_keymap_item(keymap, "AXIS_SNAP_DISABLE", "LEFT_SHIFT", "RELEASE")
-    _ensure_modal_keymap_item(keymap, "AXIS_SNAP_ENABLE", "RIGHT_SHIFT", "PRESS")
-    _ensure_modal_keymap_item(keymap, "AXIS_SNAP_DISABLE", "RIGHT_SHIFT", "RELEASE")
+def _has_axis_snap_modal_items(keymap: bpy.types.KeyMap) -> bool:
+    return any(keymap_item.propvalue in AXIS_SNAP_MODAL_PROPVALUES for keymap_item in keymap.keymap_items)
 
 
-def _ensure_modal_keymap_item(keymap: bpy.types.KeyMap, propvalue: str, event_type: str, value: str) -> None:
-    keymap_item = _find_modal_keymap_item(keymap, propvalue, event_type, value)
-    if keymap_item is None:
-        keymap_item = keymap.keymap_items.new_modal(propvalue, event_type, value)
-    keymap_item.active = True
-
-
-def _add_modal_keymap_item(
-    keymap: bpy.types.KeyMap,
-    propvalue: str,
-    event_type: str,
-    value: str,
-    *,
-    any: bool = False,
-    track: bool = False,
-) -> bpy.types.KeyMapItem:
-    keymap_item = keymap.keymap_items.new_modal(propvalue, event_type, value, any=any)
-    if track:
-        _runtime_state.added_keymap_items.append(
-            _AddedKeymapItem(_KeymapLocation("user", keymap.name), _get_keymap_item_signature(keymap_item))
+def _retarget_axis_snap_modal_items(items: list[_SerializedModalItem]) -> list[_SerializedModalItem]:
+    snap_indexes = {"AXIS_SNAP_ENABLE": 0, "AXIS_SNAP_DISABLE": 0}
+    retargeted_items = []
+    for item in items:
+        if item.propvalue not in AXIS_SNAP_MODAL_PROPVALUES:
+            retargeted_items.append(item)
+            continue
+        key_type = AXIS_SNAP_MODAL_KEY_TYPES[snap_indexes[item.propvalue] % len(AXIS_SNAP_MODAL_KEY_TYPES)]
+        snap_indexes[item.propvalue] += 1
+        value = "PRESS" if item.propvalue == "AXIS_SNAP_ENABLE" else "RELEASE"
+        retargeted_items.append(
+            _SerializedModalItem(
+                propvalue=item.propvalue,
+                type=key_type,
+                value=value,
+                any=False,
+                shift=False,
+                ctrl=False,
+                alt=False,
+                oskey=False,
+                key_modifier="NONE",
+                direction="ANY",
+                active=True,
+            )
         )
-    return keymap_item
-
-
-def _find_modal_keymap_item(
-    keymap: bpy.types.KeyMap,
-    propvalue: str,
-    event_type: str,
-    value: str,
-) -> bpy.types.KeyMapItem | None:
-    for keymap_item in keymap.keymap_items:
-        if keymap_item.propvalue == propvalue and keymap_item.type == event_type and keymap_item.value == value:
-            return keymap_item
-    return None
-
-def _is_shift_axis_snap_modal_item(keymap_item: bpy.types.KeyMapItem) -> bool:
-    return (
-        keymap_item.propvalue in {"AXIS_SNAP_ENABLE", "AXIS_SNAP_DISABLE"}
-        and keymap_item.type in {"LEFT_SHIFT", "RIGHT_SHIFT"}
-    )
+    return retargeted_items
 
 
 def _serialize_modal_keymap(keymap: bpy.types.KeyMap) -> list[_SerializedModalItem]:
@@ -332,26 +299,15 @@ def _serialize_modal_keymap_item(keymap_item: bpy.types.KeyMapItem) -> _Serializ
 
 
 def _restore_rotate_modal_keymap() -> None:
-    if _runtime_state.rotate_modal_snapshot is None:
+    snapshot = _runtime_state.rotate_modal_snapshot
+    if snapshot is None:
         return
     user_keyconfig = bpy.context.window_manager.keyconfigs.user
-    keymap = _get_or_create_keymap("user", user_keyconfig, VIEW3D_ROTATE_MODAL_KEYMAP_NAME, modal=True)
-    for keymap_item in reversed(list(keymap.keymap_items)):
-        keymap.keymap_items.remove(keymap_item)
-    for item in _runtime_state.rotate_modal_snapshot:
-        keymap_item = keymap.keymap_items.new_modal(
-            item.propvalue,
-            item.type,
-            item.value,
-            any=item.any,
-            shift=item.shift,
-            ctrl=item.ctrl,
-            alt=item.alt,
-            oskey=item.oskey,
-            key_modifier=item.key_modifier,
-            direction=item.direction,
-        )
-        keymap_item.active = item.active
+    keymap = _get_existing_keymap(user_keyconfig, VIEW3D_ROTATE_MODAL_KEYMAP_NAME)
+    if keymap is None:
+        print("ZBrush Navigation: skipped rotate modal restore; keymap not found")
+        return
+    _replace_modal_keymap_items(keymap, snapshot)
 
 
 def _remove_added_keymap_items() -> None:
@@ -421,6 +377,30 @@ def _get_runtime_keymap(location: _KeymapLocation) -> bpy.types.KeyMap | None:
     if keyconfig is None:
         return None
     return _get_existing_keymap(keyconfig, location.keymap_name)
+
+
+def _replace_modal_keymap_items(keymap: bpy.types.KeyMap, items: list[_SerializedModalItem]) -> None:
+    for keymap_item in reversed(list(keymap.keymap_items)):
+        keymap.keymap_items.remove(keymap_item)
+    for item in items:
+        _add_serialized_modal_keymap_item(keymap, item)
+
+
+def _add_serialized_modal_keymap_item(keymap: bpy.types.KeyMap, item: _SerializedModalItem) -> bpy.types.KeyMapItem:
+    keymap_item = keymap.keymap_items.new_modal(
+        item.propvalue,
+        item.type,
+        item.value,
+        any=item.any,
+        shift=item.shift,
+        ctrl=item.ctrl,
+        alt=item.alt,
+        oskey=item.oskey,
+        key_modifier=item.key_modifier,
+        direction=item.direction,
+    )
+    keymap_item.active = item.active
+    return keymap_item
 
 
 def _get_existing_keymap(keyconfig: bpy.types.KeyConfig, name: str) -> bpy.types.KeyMap | None:
