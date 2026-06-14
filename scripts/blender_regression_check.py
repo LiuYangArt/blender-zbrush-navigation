@@ -19,6 +19,7 @@ def main() -> int:
     try:
         test_keymaps_are_addon_scoped()
         test_snap_keeps_projection()
+        test_multires_level_operators()
         test_orbit_center_preserves_screen_offset()
         test_active_object_center()
     finally:
@@ -64,6 +65,9 @@ def test_keymaps_are_addon_scoped() -> None:
         assert _has_keymap_item(addon_sculpt_keymap, "view3d.rotate", "RIGHTMOUSE")
         assert not _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE")
         assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.snap_view_to_nearest_axis", "RIGHTMOUSE", shift=True)
+        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.multires_existing_level_up", "D")
+        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.multires_level_up", "D", ctrl=True)
+        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.multires_level_down", "D", shift=True)
         assert _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_ENABLE", "LEFT_SHIFT", "PRESS")
         assert _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_DISABLE", "LEFT_SHIFT", "RELEASE")
         assert _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_ENABLE", "RIGHT_SHIFT", "PRESS")
@@ -181,6 +185,38 @@ def test_snap_keeps_projection() -> None:
     assert region_3d.view_perspective == "ORTHO"
 
 
+def test_multires_level_operators() -> None:
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    bpy.ops.mesh.primitive_cube_add(size=2.0)
+    obj = bpy.context.object
+    bpy.ops.object.mode_set(mode="SCULPT")
+
+    bpy.ops.zbrush_navigation.multires_level_up()
+    modifier = obj.modifiers.get("Multires")
+    assert modifier is not None, "Ctrl+D did not create a Multires modifier"
+    assert modifier.total_levels == 1
+    assert modifier.sculpt_levels == 1
+    assert modifier.levels == 1
+    assert obj.mode == "SCULPT"
+
+    bpy.ops.zbrush_navigation.multires_level_up()
+    assert modifier.total_levels == 2
+    assert modifier.sculpt_levels == 2
+    assert modifier.levels == 2
+
+    bpy.ops.zbrush_navigation.multires_existing_level_up()
+    assert modifier.total_levels == 3
+    assert modifier.sculpt_levels == 3
+    assert modifier.levels == 3
+
+    bpy.ops.zbrush_navigation.multires_level_down()
+    assert modifier.total_levels == 3
+    assert modifier.sculpt_levels == 2
+    assert modifier.levels == 2
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+
 def test_orbit_center_preserves_screen_offset() -> None:
     from zbrush_navigation.operators.navigation_modal import _get_view_offset, _set_view_rotation_around_center
 
@@ -280,6 +316,9 @@ def _has_runtime_navigation_items(keymap) -> bool:
         "zbrush_navigation.zbrush_rotate_modal",
         "zbrush_navigation.snap_view_to_nearest_axis",
         "zbrush_navigation.mask_pen_input",
+        "zbrush_navigation.multires_existing_level_up",
+        "zbrush_navigation.multires_level_up",
+        "zbrush_navigation.multires_level_down",
         "paint.mask_lasso_gesture",
         "sculpt.brush_stroke",
         "view3d.rotate",

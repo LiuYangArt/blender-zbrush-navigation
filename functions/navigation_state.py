@@ -239,6 +239,9 @@ def _add_zbrush_keymap_items() -> None:
         _add_keymap_item("addon", keymap, "view3d.move", "RIGHTMOUSE", "PRESS", alt=True)
         if keymap_name == SCULPT_KEYMAP_NAME:
             _add_keymap_item("addon", keymap, snap_operator, "RIGHTMOUSE", "PRESS", shift=True)
+            _add_keymap_item("addon", keymap, "zbrush_navigation.multires_existing_level_up", "D", "PRESS")
+            _add_keymap_item("addon", keymap, "zbrush_navigation.multires_level_up", "D", "PRESS", ctrl=True)
+            _add_keymap_item("addon", keymap, "zbrush_navigation.multires_level_down", "D", "PRESS", shift=True)
             _add_keymap_item(
                 "addon",
                 keymap,
