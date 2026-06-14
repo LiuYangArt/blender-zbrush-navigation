@@ -34,6 +34,12 @@
 - 除非用户明确要求，或该工具在执行前必须先确认/输入参数，否则不要使用 `invoke_props_dialog`、`invoke_props_popup`、`invoke_confirm` 这类阻塞式交互。
 - 如果项目内已有对应的 scene/global 参数同步模式，新增参数时应优先沿用，不要单独发明另一套交互或存储方式。
 
+## Keymap Safety
+- Treat `bpy.context.window_manager.keyconfigs.user` as persistent user-owned data, not runtime state.
+- Add-on-owned shortcuts must default to `keyconfigs.addon`; do not create user keymap overrides unless the user explicitly requests persistent customization.
+- Do not bulk disable, clear, replace, or rebuild user keymaps. Never remove broad event classes such as all RMB entries.
+- If touching `keyconfigs.user` is unavoidable, changes must be narrow, signature-tracked, reversible, and covered by a Blender background regression check proving unrelated user keymap items remain intact.
+- Legacy cleanup may remove only known add-on signatures such as `zbrush_navigation.*` or exact historical override entries.
 ## Registration
 - Do not manually register imported modules in `__init__.py`.
 - Add new Blender classes anywhere under this package; `auto_load` discovers them.
