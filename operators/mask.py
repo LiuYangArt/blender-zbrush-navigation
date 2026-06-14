@@ -36,7 +36,17 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
     def invoke(self, context, event):
         if _event_hits_active_object(context, event):
             return {"PASS_THROUGH"}
-        return bpy.ops.paint.mask_box_gesture("INVOKE_DEFAULT", mode="VALUE", value=self.value)
+
+        settings = context.window_manager.zbrush_navigation_settings
+        return _invoke_pen_outside_drag_gesture(settings.pen_outside_drag_mode, self.value)
+
+
+def _invoke_pen_outside_drag_gesture(mode: str, value: float) -> set[str]:
+    if mode == "BOX":
+        return bpy.ops.paint.mask_box_gesture("INVOKE_DEFAULT", mode="VALUE", value=value)
+    if mode == "LASSO":
+        return bpy.ops.paint.mask_lasso_gesture("INVOKE_DEFAULT", mode="VALUE", value=value)
+    raise RuntimeError(f"Unsupported Pen Outside Drag mode: {mode}")
 
 
 def _can_use_sculpt_mask(context) -> bool:

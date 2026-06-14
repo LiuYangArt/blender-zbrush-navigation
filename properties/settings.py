@@ -25,6 +25,15 @@ class ZNAV_PG_settings(bpy.types.PropertyGroup):
         default="PEN",
         update=_refresh_runtime_navigation_keymaps,
     )
+    pen_outside_drag_mode: bpy.props.EnumProperty(
+        name="Pen Outside Drag",
+        description="Gesture used when Pen mask starts outside the sculpt object",
+        items=(
+            ("LASSO", "Lasso", "Use native lasso mask gesture"),
+            ("BOX", "Box", "Use native box mask gesture"),
+        ),
+        default="LASSO",
+    )
 
 
 def register():

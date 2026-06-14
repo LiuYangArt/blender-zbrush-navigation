@@ -38,6 +38,8 @@ def test_keymaps_are_addon_scoped() -> None:
     legacy_sculpt_keymap.keymap_items.new("view3d.zoom", "RIGHTMOUSE", "PRESS", ctrl=True)
 
     navigation_state.apply_zbrush_navigation()
+    settings = bpy.context.window_manager.zbrush_navigation_settings
+    assert settings.pen_outside_drag_mode == "LASSO"
     addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
     addon_view3d_keymap = keyconfigs.addon.keymaps.get("3D View")
 
@@ -86,7 +88,6 @@ def test_keymaps_are_addon_scoped() -> None:
     )
     assert not _has_user_plugin_items(user_keyconfig), "Legacy user keymap items were not cleaned"
 
-    settings = bpy.context.window_manager.zbrush_navigation_settings
     settings.mask_input_mode = "LASSO"
     navigation_state.refresh_zbrush_navigation()
     addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
