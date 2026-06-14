@@ -2,13 +2,9 @@
 
 ## Status
 
-当前代码已经回滚到稳定状态；本文档记录前一次 mask 功能实验的结论，供下一次从零重做使用。
+当前代码已回滚到稳定状态。本文档只记录前一次实验中已经观察到的事实、可用片段和下一轮重做时必须验证的点。
 
-不要直接恢复前一次实现。前一次实现曾导致：
-
-- 进入 Sculpt Mode 后 viewport navigation keymap 没有按预期生效。
-- Lasso 自定义 modal 吃事件，导致 viewport 操作失效。
-- Pen mask 从自定义 dispatcher 调 `sculpt.brush_stroke` 时触发 Blender crash。
+不要把前一次实现直接恢复。那次实现最终表现为：进入 Sculpt Mode 后原本应该添加的 viewport navigation keymap 没有正常出现或没有生效，插件整体不可用。具体根因尚未定位，不能归因到某一个点。
 
 ## Target Behavior
 
@@ -17,24 +13,23 @@
 Sculpt Mode 中：
 
 - `Alt + LMB`：当前 sculpt brush 临时 invert。
-- 对应 Blender operator：`sculpt.brush_stroke(mode="INVERT")`。
+- 目标 operator：`sculpt.brush_stroke(mode="INVERT")`。
 
 ### Mask Input Mode
 
-Sidebar 增加开关：
+Sidebar 增加模式开关：
 
 - `Pen`：mask 绘制使用 `sculpt.brush_stroke` + `brush_toggle="MASK"`。
 - `Lasso`：mask 绘制使用 `paint.mask_lasso_gesture`。
 
 ### Ctrl + LMB
 
-ZBrush 目标行为：
-
 | 条件 | 行为 |
 | --- | --- |
 | Pen 模式，鼠标在物体上 drag | 绘制 mask |
 | Pen 模式，鼠标在物体外 click | invert mask |
-| Pen 模式，鼠标在物体外 drag | clear mask |
+| Pen 模式，鼠标在物体外 drag，box 选区碰到物体 | box mask |
+| Pen 模式，鼠标在物体外 drag，box 选区完全没碰到物体 | clear mask |
 | Lasso 模式，lasso 选区碰到物体 | 绘制 lasso mask |
 | Lasso 模式，lasso 选区完全没碰到物体 | clear mask |
 
@@ -45,148 +40,159 @@ ZBrush 目标行为：
 | Pen 模式，鼠标在物体上 drag | 减 mask |
 | Lasso 模式，lasso 选区碰到物体 | 减 lasso mask |
 | Lasso 模式，lasso 选区没碰到物体 | 不处理 |
+### Pen Outside Drag
 
-## What Worked
+补充观察：ZBrush 的 mask Pen 模式下，如果 `Ctrl + LMB drag` 从物体外开始，不是立刻 clear mask，而是先进入 box select 行为。
+
+Blender 对应 operator：
+
+```python
+bpy.ops.paint.mask_box_gesture(mode="VALUE", value=1.0)
+```
+
+目标流程：
+
+1. `Ctrl + LMB drag`。
+2. 起点 raycast。
+3. 如果起点在物体上：走 Pen mask brush。
+4. 如果起点在物体外：进入 box mask。
+5. box 选区覆盖当前 sculpt object：执行 `mask_box_gesture(mode="VALUE", value=1.0)`。
+6. box 选区完全没覆盖当前 sculpt object：执行 `mask_flood_fill(mode="VALUE", value=0.0)`。
+
+这个 box 覆盖判定应复用 Lasso 覆盖判定思路：屏幕空间 selection polygon / rectangle 与 active object 屏幕投影相交。
+
+## Confirmed Facts
 
 ### 1. Blender keymap 支持 click / drag 区分
 
-`KeyMapItem.value` 可用：
+已确认 `KeyMapItem.value` 支持：
 
 - `CLICK`
 - `CLICK_DRAG`
 - `PRESS`
 
-因此 `Ctrl + LMB click` 和 `Ctrl + LMB drag` 可以拆成不同 keymap item。
+所以 `Ctrl + LMB click` 和 `Ctrl + LMB drag` 理论上可以拆成不同 keymap item。
 
-### 2. `paint.mask_lasso_gesture(path=...)` 可执行
+### 2. `paint.mask_lasso_gesture(path=...)` 至少有执行记录
 
-Crash log 里出现过成功执行记录：
+Crash log 中出现过：
 
 ```python
 bpy.ops.paint.mask_lasso_gesture(path=[...], mode="VALUE", value=1)
 ```
 
-说明 lasso operator 支持传入完成后的 path。
+这说明 Blender 可以记录并执行带 path 的 lasso gesture。是否适合作为插件最终方案，需要单独验证。
 
 ### 3. `mask_flood_fill` 可用于 invert / clear
 
-可用调用：
+已确认 API 形式：
 
 ```python
 bpy.ops.paint.mask_flood_fill(mode="INVERT")
 bpy.ops.paint.mask_flood_fill(mode="VALUE", value=0.0)
 ```
 
-### 4. Pen mask 必须尽量走原生 keymap
+### 4. Pen crash 现象存在，但根因未完全定位
 
-Pen 模式下，直接让 Blender 原生 `sculpt.brush_stroke` 接管 drag 是目前最安全方向。
+现象：Pen 模式 `Ctrl + LMB drag` 后 Blender crash。
 
-## Failed Attempts
-
-### 1. 不要从自定义 operator 里 invoke Pen stroke
-
-失败做法：
-
-```python
-bpy.ops.sculpt.brush_stroke(
-    "INVOKE_DEFAULT",
-    mode="NORMAL",
-    brush_toggle="MASK",
-)
-```
-
-从自定义 `CLICK_DRAG` operator 内启动它，Blender 5.1.2 在 stroke 结束 push sculpt undo 时 crash。
-
-Crash 栈关键位置：
+Crash log 关键线索：
 
 ```text
+bpy.ops.zbrush_navigation.mask_ctrl_drag()
 PaintStroke::modal
 SculptPaintStroke::done
 sculpt_paint::undo::push_end_ex
 BKE_undosys_step_push
 ```
 
-结论：Pen mask 不能用 dispatcher 再转调 `sculpt.brush_stroke`。
+只能确定：crash 发生在插件 mask drag 之后，且 native stack 在 sculpt stroke/undo 结束阶段。不能进一步断言唯一根因。
 
-### 2. 不要用 `CLICK_DRAG` 启动自定义 long-running lasso modal
+### 5. 最终坏掉的现象是 navigation keymap 没正常加入或生效
 
-失败做法：
+用户观察：进入 Sculpt Mode 后，之前会添加的 viewport navigation keymap 全都没添加或没生效。
 
-- `Ctrl + LMB CLICK_DRAG` 触发插件 operator。
-- operator `modal_handler_add()` 后返回 `RUNNING_MODAL`。
-- modal 内记录路径，等待 `LEFTMOUSE RELEASE`。
+这说明下一轮首先要验证 `apply_zbrush_navigation()` 的前置流程，而不是直接继续做 mask 行为。
 
-问题：`CLICK_DRAG` 触发时 Blender 事件流已经进入 drag 状态，自定义 modal 容易错过 release 或吃掉后续输入，导致 viewport 操作整体失效。
+## Do Not Assume
 
-结论：Lasso 自定义 modal 如果要做，不能从 `CLICK_DRAG` 事件开始；必须从 `PRESS` 开始完整接管 press/move/release，或者避免自定义 modal。
+这些不是已证实结论，不要写死为根因：
 
-### 3. 不要 disable `addon` / `default` keyconfig
+- 不要断言 viewport 失效一定是 lasso modal 吃事件导致。
+- 不要断言 disable `addon/default` 一定是唯一原因。
+- 不要断言 Pen crash 的唯一原因是 dispatcher 调 `sculpt.brush_stroke`。
 
-失败做法：
+它们都只能作为下一轮 debug 的假设。
 
-- 进入 Sculpt Mode 时扫描 `user` / `addon` / `default`。
-- disable 所有 `Ctrl/Alt + LEFTMOUSE` 冲突项。
+## Redo Plan
 
-问题：会误伤插件自己刚添加或 Blender 默认依赖的 keymap 行为，表现为进入 Sculpt Mode 后导航 keymap 丢失或不生效。
+### Phase 0: 先保护现有 navigation
 
-结论：冲突处理只能碰 `keyconfigs.user`，且必须先添加明确签名和回归检查。
+在做任何 mask 功能前，先加或运行回归检查，确认进入 Sculpt Mode 后这些 addon keymap 存在且 active：
 
-## Recommended Redo Plan
+- RMB -> `zbrush_navigation.zbrush_rotate_modal`
+- Ctrl RMB -> `view3d.zoom`
+- Alt RMB -> `view3d.move`
+- Shift RMB -> `zbrush_navigation.zbrush_rotate_modal`
 
-### Phase 1: 只做最小稳定版本
+如果这些不成立，停止 mask 实现，先修 navigation apply 流程。
 
-实现范围：
+### Phase 1: 只加 UI 属性，不加快捷键
 
-- Sidebar `mask_input_mode`。
-- `Alt + LMB PRESS` -> `sculpt.brush_stroke(mode="INVERT")`。
-- `Ctrl + LMB CLICK` -> 插件 operator：物体外 invert，物体上 pass-through。
-- Pen 模式：`Ctrl + LMB CLICK_DRAG` / `Ctrl + Alt + LMB CLICK_DRAG` 直接绑定原生 `sculpt.brush_stroke`。
-- Lasso 模式：先直接绑定原生 `paint.mask_lasso_gesture`，不要做 ZBrush 外部 clear 逻辑。
+先只加：
 
-目标是先确认不会破坏 navigation。
+- `mask_input_mode = PEN / LASSO`
+- Sidebar 显示开关
 
-### Phase 2: narrow conflict handling
+验证：
 
-只处理 `keyconfigs.user`。
+- 进入 Sculpt Mode 后 navigation keymap 仍正常。
+- 退出 Sculpt Mode 后恢复正常。
 
-仅 disable：
+### Phase 2: 只加 `Alt + LMB` invert brush
 
-- keymap name: `Sculpt` 和必要时 `3D View Tool: Sculpt*`。
-- event type: `LEFTMOUSE`。
-- modifier: `Ctrl` 或 `Alt`。
-- 排除：`zbrush_navigation.*`。
+只添加：
 
-必须记录：
+```python
+sculpt.brush_stroke(mode="INVERT")
+```
 
-- keyconfig name。
-- keymap name。
-- keymap item signature。
-- 原 active 状态。
+验证 navigation 不受影响。
 
-退出 Sculpt Mode 时只恢复这些签名。
+### Phase 3: 只加 mask flood fill click
 
-### Phase 3: ZBrush-style lasso clear
+添加 `Ctrl + LMB CLICK` dispatcher：
 
-不要用 `CLICK_DRAG` 启动自定义 modal。
+- 鼠标在物体外：`mask_flood_fill(mode="INVERT")`
+- 鼠标在物体上：不处理或 pass-through
 
-可选方案 A：`PRESS` modal 完整接管 Lasso
+验证 navigation 不受影响。
 
-- `Ctrl + LMB PRESS` 进入插件 modal。
-- modal 记录 `MOUSEMOVE` path。
-- `LEFTMOUSE RELEASE` 时判断 lasso 是否覆盖 object。
-- 覆盖则调用 `paint.mask_lasso_gesture(path=...)`。
-- 未覆盖则 clear mask。
+### Phase 4: 再分别实验 Pen / Lasso drag
 
-风险：`PRESS` modal 会和 Pen 原生 stroke 冲突，所以只在 Lasso 模式启用。
+每次只做一种模式，不要同时改 Pen 和 Lasso：
 
-可选方案 B：保留原生 lasso，放弃“完全没选中才 clear”
+- Pen 起点在物体上：优先直接绑定原生 `sculpt.brush_stroke` keymap。
+- Pen 起点在物体外：实验 box mask，目标 operator 是 `paint.mask_box_gesture(mode="VALUE", value=1.0)`；box 完全没覆盖 object 时 clear mask。
+- Lasso drag：优先直接绑定原生 `paint.mask_lasso_gesture` keymap。
 
-- 这是更稳定的折中方案。
-- 外部 clear 只通过额外独立操作实现。
+每一步都必须真实 View3D 测试后再继续。
 
-## Hit Test Design
+## Conflict Handling Rules
 
-### Pen 起点判断
+如果需要禁用冲突快捷键：
+
+- 第一版只碰 `keyconfigs.user`。
+- 不碰 `keyconfigs.addon`。
+- 不碰 `keyconfigs.default`。
+- 不 bulk clear / rebuild keymap。
+- 只处理明确冲突项，例如 `Sculpt` keymap 中 active 的 `Ctrl/Alt + LEFTMOUSE`。
+- 记录 signature 和原 active 状态。
+- 退出 Sculpt Mode 时按 signature 恢复。
+
+## Hit Test Notes
+
+### 鼠标是否在物体上
 
 可用 View3D raycast：
 
@@ -198,35 +204,19 @@ context.scene.ray_cast(depsgraph, origin, direction)
 
 只把命中当前 active sculpt mesh 视为“在物体上”。
 
-### Lasso 覆盖判断
+### Box / Lasso 是否覆盖物体
 
-第一版不要追求完美面级判断。建议用屏幕空间近似：
+尚未验证。可作为后续方案：
 
-1. active object bound box 8 个点投影到屏幕。
-2. 计算 convex hull。
-3. 判断 lasso polygon 与 object hull 是否相交：
-   - lasso 点在 hull 内。
-   - hull 点在 lasso 内。
-   - polygon 边相交。
+1. active object bound box 投影到屏幕。
+2. box rectangle 或 lasso path 构成屏幕空间 polygon。
+3. 判断两个 polygon 是否相交。
 
-这只能判断 object 屏幕包围范围，不等价于真实 mesh selection，但足够先接近 ZBrush 行为。
-
-## Keymap Safety Rules
-
-必须遵守：
-
-- 默认写 `keyconfigs.addon`。
-- 不创建 user keymap override，除非用户明确要求。
-- 不 bulk clear / rebuild user keymap。
-- 不碰 `keyconfigs.default`。
-- 不 disable `addon` keyconfig。
-- 不保存 live `KeyMapItem` 引用。
-- 恢复时用 signature 重新查找。
-- 任何 conflict disable 必须有 Blender background regression。
+这是近似方案，不等价于真实 mesh selection。
 
 ## Required Verification
 
-每次实现后至少运行：
+每一步至少运行：
 
 ```powershell
 python scripts\validate_addon.py
@@ -234,34 +224,21 @@ git diff --check
 & 'C:\Program Files (x86)\Steam\steamapps\common\Blender\blender.exe' --background --factory-startup --python scripts\blender_regression_check.py
 ```
 
-如果改 keymap，background regression 必须检查：
-
-- add-on `Sculpt` keymap 中 navigation RMB 项仍存在。
-- add-on `Sculpt` keymap 中 mask LMB 项存在。
-- user keymap 中 unrelated LMB/RMB 项未被删除。
-- 被 disable 的 user conflict 项退出 Sculpt Mode 后恢复 active 状态。
-- 插件 unregister 后 add-on keymap 清理干净。
-
-## Manual Verification Checklist
-
 真实 View3D 必测：
 
 - 进入 Sculpt Mode 后 RMB rotate 可用。
 - Ctrl RMB zoom 可用。
 - Alt RMB pan 可用。
 - Shift RMB snap 可用。
-- 退出 Sculpt Mode 后原 navigation 恢复。
-- Pen 模式 Ctrl LMB drag 不 crash。
-- Lasso 模式 Ctrl LMB drag 能正常 lasso。
-- Ctrl LMB click 只在物体外 invert mask。
-- 物体外 clear 行为不会吞掉后续 viewport 输入。
+- 退出 Sculpt Mode 后恢复。
+- 新增 mask 行为不影响上述 navigation。
 
 ## Stop Conditions
 
-出现以下任一情况，立刻 revert 当前 mask 实现，不继续叠补丁：
+出现以下任一情况，立刻停止并回滚当前步骤：
 
-- 进入 Sculpt Mode 后 RMB navigation 丢失。
-- viewport 输入被 modal 吞掉。
+- 进入 Sculpt Mode 后 navigation keymap 没添加或不 active。
+- viewport 输入失效。
 - Blender crash。
-- user/default/addon keymap 状态无法解释。
+- keymap 状态无法解释。
 - background regression 通过但真实 View3D 失效。
