@@ -6,11 +6,11 @@ from ..functions.navigation_state import format_settings_summary
 
 
 class ZNAV_OT_report_status(bpy.types.Operator):
-    """Report the current ZBrush Navigation settings."""
+    """Report the current ZBrush Navigation state."""
 
     bl_idname = "zbrush_navigation.report_status"
     bl_label = "Report Navigation Status"
-    bl_description = "Print the current ZBrush Navigation scaffold settings"
+    bl_description = "Print the current ZBrush Navigation state"
     bl_options = {"REGISTER"}
 
     def execute(self, context):

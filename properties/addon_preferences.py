@@ -19,6 +19,5 @@ class ZNAV_AP_preferences(bpy.types.AddonPreferences):
         settings = context.window_manager.zbrush_navigation_settings
         layout.prop(self, "show_sidebar_panel")
         layout.prop(settings, "enable_zbrush_navigation")
-        layout.prop(settings, "orbit_mode")
         layout.operator("zbrush_navigation.report_status", icon="INFO")
         layout.label(text=format_settings_summary(settings))
