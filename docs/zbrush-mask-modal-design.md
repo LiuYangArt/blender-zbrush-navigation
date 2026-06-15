@@ -124,6 +124,52 @@ BKE_undosys_step_push
 
 它们都只能作为下一轮 debug 的假设。
 
+## Chosen Empty Selection Strategy
+
+下一轮优先采用“自定义输入/HUD + 原生 mask 应用”的混合方案。
+
+### Why Not Run Native Gesture And Custom Modal Together
+
+不采用“启动原生 `mask_box_gesture` / `mask_lasso_gesture` 的同时运行插件 modal”作为主方案：
+
+- 原生 gesture modal 会接管事件流，插件 modal 不保证能完整收到 `MOUSEMOVE` / `RELEASE`。
+- Lasso 必须拿到完整 path；只要漏点，空选判断就不可信。
+- 原生 box/lasso operator 只返回 `FINISHED` / `CANCELLED`，不会返回“选区是否碰到模型”。
+
+### Selected Architecture
+
+插件自己负责拖拽输入、HUD 和空选判断；真正写入 mask 时仍调用 Blender 原生 operator。
+
+流程：
+
+1. 起点 raycast，只把命中当前 active sculpt object 视为“在物体上”。
+2. 如果起点在物体上，继续 pass-through 给原生 sculpt mask brush。
+3. 如果起点在物体外，插件进入自定义 modal。
+4. Box 记录起点/终点；Lasso 记录完整鼠标 path。
+5. 使用 `SpaceView3D.draw_handler_add(..., "POST_PIXEL")` 绘制 HUD 线框。
+6. 松开鼠标后先做插件侧 hit test。
+7. 非空选：调用原生 `mask_box_gesture(..., wait_for_input=False, mode="VALUE", value=...)` 或 `mask_lasso_gesture(path=..., mode="VALUE", value=...)`。
+8. 空选：调用 `mask_flood_fill(mode="VALUE", value=0.0)`。
+
+### Lasso Hit Test Rule
+
+Lasso 不能用 active object bounding box 判断。第一版用屏幕空间 polygon + ray sample：
+
+- 把 lasso path 当作屏幕空间 polygon。
+- 在 polygon 内按固定步长采样屏幕点。
+- 每个采样点通过 `region_2d_to_origin_3d` / `region_2d_to_vector_3d` 做 raycast。
+- 只要任一点命中当前 active sculpt object，就认为选区非空。
+- 没有任何命中则认为空选并 clear mask。
+
+### First Experiment Scope
+
+先只试 Lasso：
+
+- 新增插件自定义 Lasso modal 和 HUD。
+- 验证 `paint.mask_lasso_gesture(path=...)` 能接受插件记录的 path。
+- 验证空选 clear、不空选 apply。
+- Lasso 成功后，Box 复用同一套 modal/HUD/hit-test 框架实现。
+
 ## Redo Plan
 
 ### Phase 0: 先保护现有 navigation
