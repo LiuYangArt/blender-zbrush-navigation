@@ -11,8 +11,10 @@ DEFAULT_MASK_DRAG_THRESHOLD_PIXELS = 10.0
 LASSO_MIN_POINT_DISTANCE_PIXELS = 1.5
 LASSO_HIT_TEST_TARGET_SAMPLES = 2500
 LASSO_HIT_TEST_MIN_STEP_PIXELS = 8.0
-MASK_OVERLAY_FILL_COLOR = (0.0, 0.0, 0.0, 0.65)
-MASK_OVERLAY_OUTLINE_COLOR = (0.0, 0.0, 0.0, 0.62)
+ADD_MASK_OVERLAY_FILL_COLOR = (0.0, 0.0, 0.0, 0.65)
+ADD_MASK_OVERLAY_OUTLINE_COLOR = (0.0, 0.0, 0.0, 0.62)
+SUBTRACT_MASK_OVERLAY_FILL_COLOR = (1.0, 1.0, 1.0, 0.45)
+SUBTRACT_MASK_OVERLAY_OUTLINE_COLOR = (1.0, 1.0, 1.0, 0.62)
 MASK_VALUE_EPSILON = 1e-6
 
 
@@ -33,6 +35,10 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
     _current_mouse_x = 0.0
     _current_mouse_y = 0.0
     _drag_started = False
+    _is_subtracting = False
+    _is_moving_selection = False
+    _move_mouse_x = 0.0
+    _move_mouse_y = 0.0
     _path = None
     _start_time = 0.0
     _outside_drag_mode = None
@@ -57,6 +63,10 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
         self._start_time = perf_counter()
         self._drag_started = False
         self._outside_drag_mode = None
+        self._is_subtracting = _event_is_subtracting(event)
+        self._is_moving_selection = False
+        self._move_mouse_x = self._start_mouse_x
+        self._move_mouse_y = self._start_mouse_y
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
 
@@ -64,6 +74,12 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
         if event.type == "ESC":
             self._cleanup()
             return {"CANCELLED"}
+
+        self._update_subtract_mode(event)
+
+        if event.type == "SPACE" and self._drag_started:
+            self._handle_space_event(event)
+            return {"RUNNING_MODAL"}
 
         if event.type == "MOUSEMOVE":
             self._handle_mouse_move(context, event)
@@ -77,6 +93,10 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     def _handle_mouse_move(self, context, event) -> None:
+        if self._is_moving_selection:
+            self._move_selection(event)
+            return
+
         self._current_mouse_x = float(event.mouse_region_x)
         self._current_mouse_y = float(event.mouse_region_y)
         if not self._drag_started:
@@ -104,14 +124,19 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
         self._tag_redraw()
 
     def _finish_outside_drag(self, context, event):
-        self._current_mouse_x = float(event.mouse_region_x)
-        self._current_mouse_y = float(event.mouse_region_y)
+        if self._is_moving_selection:
+            self._move_selection(event)
+        else:
+            self._current_mouse_x = float(event.mouse_region_x)
+            self._current_mouse_y = float(event.mouse_region_y)
+
         if self._outside_drag_mode == "LASSO":
-            self._append_path_point(event, force=True)
+            if not self._is_moving_selection:
+                self._append_path_point(event, force=True)
             path = list(self._path)
             self._cleanup()
             if _lasso_hits_active_object(context, self._region, self._region_3d, path):
-                _apply_native_lasso_mask(path, self.value)
+                _apply_native_lasso_mask(path, _drag_mask_value(event))
             else:
                 _handle_empty_drag(context)
             return {"FINISHED"}
@@ -121,7 +146,7 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
             end = (self._current_mouse_x, self._current_mouse_y)
             self._cleanup()
             if _box_hits_active_object(context, self._region, self._region_3d, start, end):
-                _apply_native_box_mask(start, end, self.value)
+                _apply_native_box_mask(start, end, _drag_mask_value(event))
             else:
                 _handle_empty_drag(context)
             return {"FINISHED"}
@@ -150,6 +175,40 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
                 return False
         self._path.append(point)
         return True
+
+    def _update_subtract_mode(self, event) -> None:
+        is_subtracting = _event_is_subtracting(event)
+        if self._is_subtracting == is_subtracting:
+            return
+        self._is_subtracting = is_subtracting
+        if self._draw_handler is not None:
+            self._tag_redraw()
+
+    def _handle_space_event(self, event) -> None:
+        if event.value == "PRESS":
+            self._is_moving_selection = True
+            self._move_mouse_x, self._move_mouse_y = _event_mouse_coords(event, self._current_mouse_x, self._current_mouse_y)
+        elif event.value == "RELEASE":
+            self._is_moving_selection = False
+
+    def _move_selection(self, event) -> None:
+        mouse_x, mouse_y, delta_x, delta_y = _event_mouse_delta(event, self._move_mouse_x, self._move_mouse_y)
+        if delta_x == 0.0 and delta_y == 0.0:
+            return
+
+        if self._outside_drag_mode == "LASSO":
+            self._path = _translate_lasso_path(self._path, delta_x, delta_y)
+        elif self._outside_drag_mode == "BOX":
+            self._start_mouse_x += delta_x
+            self._start_mouse_y += delta_y
+        else:
+            raise RuntimeError(f"Unsupported Pen Outside Drag mode: {self._outside_drag_mode}")
+
+        self._current_mouse_x += delta_x
+        self._current_mouse_y += delta_y
+        self._move_mouse_x = mouse_x
+        self._move_mouse_y = mouse_y
+        self._tag_redraw()
 
     def _drag_distance(self, event) -> float:
         return hypot(event.mouse_region_x - self._start_mouse_x, event.mouse_region_y - self._start_mouse_y)
@@ -201,6 +260,10 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
     _start_mouse_y = 0.0
     _max_drag_distance = 0.0
     _start_hits_active_object = False
+    _is_subtracting = False
+    _is_moving_selection = False
+    _move_mouse_x = 0.0
+    _move_mouse_y = 0.0
 
     @classmethod
     def poll(cls, context):
@@ -216,6 +279,10 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
         self._start_mouse_x = float(event.mouse_region_x)
         self._start_mouse_y = float(event.mouse_region_y)
         self._max_drag_distance = 0.0
+        self._is_subtracting = _event_is_subtracting(event)
+        self._is_moving_selection = False
+        self._move_mouse_x = self._start_mouse_x
+        self._move_mouse_y = self._start_mouse_y
         self._append_path_point(event)
         self._draw_handler = bpy.types.SpaceView3D.draw_handler_add(_draw_lasso_overlay, (self,), "WINDOW", "POST_PIXEL")
         context.window_manager.modal_handler_add(self)
@@ -227,15 +294,28 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
             self._cleanup()
             return {"CANCELLED"}
 
+        self._update_subtract_mode(event)
+
+        if event.type == "SPACE" and self._can_move_selection(context):
+            self._handle_space_event(event)
+            return {"RUNNING_MODAL"}
+
         if event.type == "MOUSEMOVE":
+            if self._is_moving_selection:
+                self._move_selection(event)
+                return {"RUNNING_MODAL"}
+
             self._update_drag_distance(event)
             if self._append_path_point(event):
                 self._tag_redraw()
             return {"RUNNING_MODAL"}
 
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
-            self._append_path_point(event, force=True)
-            return self._finish_lasso(context)
+            if self._is_moving_selection:
+                self._move_selection(event)
+            else:
+                self._append_path_point(event, force=True)
+            return self._finish_lasso(context, event)
 
         return {"RUNNING_MODAL"}
 
@@ -252,7 +332,36 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
         distance = hypot(event.mouse_region_x - self._start_mouse_x, event.mouse_region_y - self._start_mouse_y)
         self._max_drag_distance = max(self._max_drag_distance, distance)
 
-    def _finish_lasso(self, context):
+    def _update_subtract_mode(self, event) -> None:
+        is_subtracting = _event_is_subtracting(event)
+        if self._is_subtracting == is_subtracting:
+            return
+        self._is_subtracting = is_subtracting
+        self._tag_redraw()
+
+    def _can_move_selection(self, context) -> bool:
+        return len(self._path) >= 3 and self._max_drag_distance >= _get_mask_drag_threshold(context)
+
+    def _handle_space_event(self, event) -> None:
+        if event.value == "PRESS":
+            self._is_moving_selection = True
+            self._move_mouse_x, self._move_mouse_y = _event_mouse_coords(event, self._start_mouse_x, self._start_mouse_y)
+        elif event.value == "RELEASE":
+            self._is_moving_selection = False
+
+    def _move_selection(self, event) -> None:
+        mouse_x, mouse_y, delta_x, delta_y = _event_mouse_delta(event, self._move_mouse_x, self._move_mouse_y)
+        if delta_x == 0.0 and delta_y == 0.0:
+            return
+
+        self._path = _translate_lasso_path(self._path, delta_x, delta_y)
+        self._start_mouse_x += delta_x
+        self._start_mouse_y += delta_y
+        self._move_mouse_x = mouse_x
+        self._move_mouse_y = mouse_y
+        self._tag_redraw()
+
+    def _finish_lasso(self, context, event):
         path = list(self._path)
         self._cleanup()
 
@@ -260,7 +369,7 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
             return self._handle_click(context)
 
         if _lasso_hits_active_object(context, self._region, self._region_3d, path):
-            _apply_native_lasso_mask(path, self.value)
+            _apply_native_lasso_mask(path, _drag_mask_value(event))
             return {"FINISHED"}
 
         _handle_empty_drag(context)
@@ -281,6 +390,27 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
     def _tag_redraw(self) -> None:
         if self._area is not None:
             self._area.tag_redraw()
+
+
+def _event_is_subtracting(event) -> bool:
+    return bool(getattr(event, "alt", False))
+
+
+def _drag_mask_value(event) -> float:
+    return 0.0 if _event_is_subtracting(event) else 1.0
+
+
+def _event_mouse_coords(event, fallback_x: float, fallback_y: float) -> tuple[float, float]:
+    return float(getattr(event, "mouse_region_x", fallback_x)), float(getattr(event, "mouse_region_y", fallback_y))
+
+
+def _event_mouse_delta(event, previous_x: float, previous_y: float) -> tuple[float, float, float, float]:
+    mouse_x, mouse_y = _event_mouse_coords(event, previous_x, previous_y)
+    return mouse_x, mouse_y, mouse_x - previous_x, mouse_y - previous_y
+
+
+def _translate_lasso_path(path: list[tuple[float, float, float]], delta_x: float, delta_y: float) -> list[tuple[float, float, float]]:
+    return [(x + delta_x, y + delta_y, elapsed) for x, y, elapsed in path]
 
 
 def _get_mask_drag_threshold(context) -> float:
@@ -326,6 +456,8 @@ def _run_empty_drag_voxel_remesh(context) -> None:
 
     from .multires import _find_multires_modifier, _temporary_object_mode
 
+    bpy.ops.ed.undo_push(message="Before ZBrush Navigation Empty Drag Voxel Remesh")
+
     with _temporary_object_mode(obj):
         context.view_layer.objects.active = obj
         obj.select_set(True)
@@ -347,20 +479,30 @@ def _apply_mask_filter_click(value: float) -> set[str]:
 
 
 def _draw_lasso_overlay(operator: ZNAV_OT_mask_lasso_input) -> None:
-    _draw_filled_polygon_overlay([(point[0], point[1]) for point in operator._path])
+    _draw_filled_polygon_overlay([(point[0], point[1]) for point in operator._path], *_mask_overlay_colors(operator))
 
 
 def _draw_pen_outside_lasso_overlay(operator: ZNAV_OT_mask_pen_input) -> None:
-    _draw_filled_polygon_overlay([(point[0], point[1]) for point in operator._path])
+    _draw_filled_polygon_overlay([(point[0], point[1]) for point in operator._path], *_mask_overlay_colors(operator))
 
 
 def _draw_pen_outside_box_overlay(operator: ZNAV_OT_mask_pen_input) -> None:
     start = (operator._start_mouse_x, operator._start_mouse_y)
     end = (operator._current_mouse_x, operator._current_mouse_y)
-    _draw_filled_polygon_overlay(_get_box_polygon(start, end))
+    _draw_filled_polygon_overlay(_get_box_polygon(start, end), *_mask_overlay_colors(operator))
 
 
-def _draw_filled_polygon_overlay(coords: list[tuple[float, float]]) -> None:
+def _mask_overlay_colors(operator) -> tuple[tuple[float, float, float, float], tuple[float, float, float, float]]:
+    if operator._is_subtracting:
+        return SUBTRACT_MASK_OVERLAY_FILL_COLOR, SUBTRACT_MASK_OVERLAY_OUTLINE_COLOR
+    return ADD_MASK_OVERLAY_FILL_COLOR, ADD_MASK_OVERLAY_OUTLINE_COLOR
+
+
+def _draw_filled_polygon_overlay(
+    coords: list[tuple[float, float]],
+    fill_color: tuple[float, float, float, float],
+    outline_color: tuple[float, float, float, float],
+) -> None:
     if len(coords) < 2:
         return
 
@@ -378,13 +520,13 @@ def _draw_filled_polygon_overlay(coords: list[tuple[float, float]]) -> None:
         indices = tessellate_polygon(polygon)
         fill_batch = batch_for_shader(shader, "TRIS", {"pos": coords}, indices=indices)
         shader.bind()
-        shader.uniform_float("color", MASK_OVERLAY_FILL_COLOR)
+        shader.uniform_float("color", fill_color)
         fill_batch.draw(shader)
 
     outline_batch = batch_for_shader(shader, "LINE_STRIP", {"pos": closed_coords})
     gpu.state.line_width_set(1.0)
     shader.bind()
-    shader.uniform_float("color", MASK_OVERLAY_OUTLINE_COLOR)
+    shader.uniform_float("color", outline_color)
     outline_batch.draw(shader)
     gpu.state.line_width_set(1.0)
     gpu.state.blend_set("NONE")

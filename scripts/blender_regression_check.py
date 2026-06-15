@@ -21,6 +21,8 @@ def main() -> int:
         test_snap_keeps_projection()
         test_multires_level_operators()
         test_empty_drag_voxel_remesh_helpers()
+        test_mask_drag_value_uses_release_alt_state()
+        test_mask_selection_overlay_helpers()
         test_orbit_center_preserves_screen_offset()
         test_active_object_center()
     finally:
@@ -266,8 +268,37 @@ def test_empty_drag_voxel_remesh_helpers() -> None:
 
     _run_empty_drag_voxel_remesh(bpy.context)
 
+    remeshed_vertex_count = len(obj.data.vertices)
     assert all(modifier.type != "MULTIRES" for modifier in obj.modifiers)
-    assert len(obj.data.vertices) > 8
+    assert remeshed_vertex_count > 8
+
+
+def test_mask_drag_value_uses_release_alt_state() -> None:
+    from types import SimpleNamespace
+
+    from zbrush_navigation.operators.mask import _drag_mask_value
+
+    assert _drag_mask_value(SimpleNamespace(alt=False)) == 1.0
+    assert _drag_mask_value(SimpleNamespace(alt=True)) == 0.0
+
+
+def test_mask_selection_overlay_helpers() -> None:
+    from types import SimpleNamespace
+
+    from zbrush_navigation.operators.mask import (
+        ADD_MASK_OVERLAY_FILL_COLOR,
+        SUBTRACT_MASK_OVERLAY_FILL_COLOR,
+        _mask_overlay_colors,
+        _translate_lasso_path,
+    )
+
+    assert _mask_overlay_colors(SimpleNamespace(_is_subtracting=False))[0] == ADD_MASK_OVERLAY_FILL_COLOR
+    assert _mask_overlay_colors(SimpleNamespace(_is_subtracting=True))[0] == SUBTRACT_MASK_OVERLAY_FILL_COLOR
+    assert _translate_lasso_path([(1.0, 2.0, 0.0), (3.0, 4.0, 0.5)], 10.0, -1.0) == [
+        (11.0, 1.0, 0.0),
+        (13.0, 3.0, 0.5),
+    ]
+
 
 def test_orbit_center_preserves_screen_offset() -> None:
     from zbrush_navigation.operators.navigation_modal import _get_view_offset, _set_view_rotation_around_center
