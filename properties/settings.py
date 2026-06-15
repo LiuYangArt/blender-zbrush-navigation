@@ -39,6 +39,27 @@ class ZNAV_PG_settings(bpy.types.PropertyGroup):
         description="Run voxel remesh on empty Ctrl-drag when the active sculpt object has no mask",
         default=False,
     )
+    faceset_gesture: bpy.props.EnumProperty(
+        name="Face Set Gesture",
+        description="Gesture used by Ctrl+Shift drag for Face Set operations",
+        items=(
+            ("BOX", "Box", "Use native box Face Set gesture"),
+            ("LASSO", "Lasso", "Use native lasso Face Set gesture"),
+            ("LINE", "Line", "Use native line Face Set gesture"),
+            ("POLYLINE", "Polyline", "Use native polyline Face Set gesture"),
+        ),
+        default="BOX",
+    )
+    faceset_front_faces_only: bpy.props.BoolProperty(
+        name="Front Faces Only",
+        description="Limit Face Set gestures to front-facing geometry",
+        default=False,
+    )
+    faceset_line_limit_to_segment: bpy.props.BoolProperty(
+        name="Line Limit To Segment",
+        description="Limit line Face Set gestures to the dragged segment",
+        default=False,
+    )
 
 
 def register():

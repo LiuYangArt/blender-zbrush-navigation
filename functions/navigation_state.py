@@ -85,6 +85,7 @@ class _RuntimeState:
     added_keymap_items: list[_AddedKeymapItem] = field(default_factory=list)
     created_keymaps: list[_CreatedKeymap] = field(default_factory=list)
     mask_input_mode: str | None = None
+    faceset_gesture: str | None = None
     use_zbrush_style_rotate: bool | None = None
     original_rotate_modal_axis_snap_items: list[_ModalKeymapItemSnapshot] | None = None
 
@@ -149,6 +150,7 @@ def apply_zbrush_navigation() -> None:
         _remove_legacy_user_keymap_items()
         _add_zbrush_keymap_items()
         _runtime_state.mask_input_mode = _get_mask_input_mode()
+        _runtime_state.faceset_gesture = _get_faceset_gesture()
         _runtime_state.use_zbrush_style_rotate = _use_zbrush_style_rotate()
         preferences.inputs.use_mouse_emulate_3_button = False
         _sync_rotate_around_active_preference(_runtime_state.use_zbrush_style_rotate)
@@ -165,9 +167,11 @@ def refresh_zbrush_navigation() -> None:
         return
 
     mask_input_mode = _get_mask_input_mode()
+    faceset_gesture = _get_faceset_gesture()
     use_zbrush_style_rotate = _use_zbrush_style_rotate()
     if (
         mask_input_mode == _runtime_state.mask_input_mode
+        and faceset_gesture == _runtime_state.faceset_gesture
         and use_zbrush_style_rotate == _runtime_state.use_zbrush_style_rotate
     ):
         return
@@ -180,6 +184,7 @@ def refresh_zbrush_navigation() -> None:
     _sync_rotate_modal_axis_snap_keymap(use_zbrush_style_rotate)
     _add_zbrush_keymap_items()
     _runtime_state.mask_input_mode = mask_input_mode
+    _runtime_state.faceset_gesture = faceset_gesture
     _runtime_state.use_zbrush_style_rotate = use_zbrush_style_rotate
 
 def restore_zbrush_navigation() -> None:
@@ -202,6 +207,7 @@ def _reset_runtime_state() -> None:
     _runtime_state.added_keymap_items.clear()
     _runtime_state.created_keymaps.clear()
     _runtime_state.mask_input_mode = None
+    _runtime_state.faceset_gesture = None
     _runtime_state.use_zbrush_style_rotate = None
     _runtime_state.original_rotate_modal_axis_snap_items = None
 
@@ -252,6 +258,29 @@ def _add_zbrush_keymap_items() -> None:
                 properties={"mode": "INVERT"},
             )
             _add_mask_input_keymap_items(keymap, _get_mask_input_mode())
+            _add_faceset_keymap_items(keymap)
+
+
+def _add_faceset_keymap_items(keymap: bpy.types.KeyMap) -> None:
+    _add_keymap_item(
+        "addon",
+        keymap,
+        "zbrush_navigation.faceset_polygroup_input",
+        "LEFTMOUSE",
+        "PRESS",
+        shift=True,
+        ctrl=True,
+    )
+    _add_keymap_item(
+        "addon",
+        keymap,
+        "zbrush_navigation.faceset_polygroup_input",
+        "LEFTMOUSE",
+        "PRESS",
+        shift=True,
+        ctrl=True,
+        alt=True,
+    )
 
 
 def _add_mask_input_keymap_items(keymap: bpy.types.KeyMap, mask_input_mode: str) -> None:
@@ -338,6 +367,13 @@ def _add_mask_input_keymap_items(keymap: bpy.types.KeyMap, mask_input_mode: str)
         return
 
     raise RuntimeError(f"Unsupported mask input mode: {mask_input_mode}")
+
+
+def _get_faceset_gesture() -> str:
+    settings = getattr(bpy.context.window_manager, "zbrush_navigation_settings", None)
+    if settings is None:
+        return "BOX"
+    return settings.faceset_gesture
 
 
 def _get_mask_input_mode() -> str:

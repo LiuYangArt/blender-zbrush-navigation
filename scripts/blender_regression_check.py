@@ -23,6 +23,7 @@ def main() -> int:
         test_empty_drag_voxel_remesh_helpers()
         test_mask_drag_value_uses_release_alt_state()
         test_mask_selection_overlay_helpers()
+        test_faceset_helpers()
         test_orbit_center_preserves_screen_offset()
         test_active_object_center()
     finally:
@@ -60,6 +61,9 @@ def test_keymaps_are_addon_scoped() -> None:
         settings = bpy.context.window_manager.zbrush_navigation_settings
         assert settings.pen_outside_drag_mode == "LASSO"
         assert settings.enable_empty_drag_voxel_remesh is False
+        assert settings.faceset_gesture == "BOX"
+        assert settings.faceset_front_faces_only is False
+        assert settings.faceset_line_limit_to_segment is False
         assert input_preferences.use_mouse_emulate_3_button is False
         assert input_preferences.use_rotate_around_active is True
         addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
@@ -84,6 +88,8 @@ def test_keymaps_are_addon_scoped() -> None:
         assert _has_keymap_item(addon_sculpt_keymap, "view3d.zoom", "RIGHTMOUSE", ctrl=True)
         assert _has_keymap_item(addon_sculpt_keymap, "view3d.move", "RIGHTMOUSE", alt=True)
         assert _has_keymap_item(addon_sculpt_keymap, "sculpt.brush_stroke", "LEFTMOUSE", alt=True, mode="INVERT")
+        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.faceset_polygroup_input", "LEFTMOUSE", shift=True, ctrl=True)
+        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.faceset_polygroup_input", "LEFTMOUSE", shift=True, ctrl=True, alt=True)
         assert not _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_ctrl_click", "LEFTMOUSE", ctrl=True, value="CLICK")
         assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_pen_input", "LEFTMOUSE", ctrl=True, float_value=1.0)
         assert _has_keymap_item(
@@ -136,6 +142,7 @@ def test_keymaps_are_addon_scoped() -> None:
         navigation_state.refresh_zbrush_navigation()
         addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
         assert _has_keymap_item(addon_sculpt_keymap, "view3d.rotate", "RIGHTMOUSE", value="CLICK_DRAG")
+        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.faceset_polygroup_input", "LEFTMOUSE", shift=True, ctrl=True)
         assert not _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_pen_input", "LEFTMOUSE", ctrl=True, float_value=1.0)
         assert not _has_keymap_item(
             addon_sculpt_keymap,
@@ -325,6 +332,56 @@ def test_mask_selection_overlay_helpers() -> None:
     ]
 
 
+
+def test_faceset_helpers() -> None:
+    from types import SimpleNamespace
+
+    from zbrush_navigation.operators import faceset
+    from zbrush_navigation.operators.faceset import (
+        FACESET_ADD_OVERLAY_FILL_COLOR,
+        FACESET_HIDE_OVERLAY_FILL_COLOR,
+        _faceset_overlay_colors,
+        _get_face_set_id,
+        _to_operator_path,
+    )
+
+    assert _faceset_overlay_colors(SimpleNamespace(_is_hiding=False))[0] == FACESET_ADD_OVERLAY_FILL_COLOR
+    assert _faceset_overlay_colors(SimpleNamespace(_is_hiding=True))[0] == FACESET_HIDE_OVERLAY_FILL_COLOR
+    assert _to_operator_path([(1.0, 2.0, 0.0), (3.0, 4.0, 0.5)]) == [
+        {"name": "0", "loc": (1.0, 2.0), "time": 0.0},
+        {"name": "1", "loc": (3.0, 4.0), "time": 0.5},
+    ]
+
+    calls = []
+    fake_bpy = SimpleNamespace(
+        ops=SimpleNamespace(
+            paint=SimpleNamespace(hide_show_all=lambda **kwargs: calls.append(("show_all", kwargs))),
+            sculpt=SimpleNamespace(face_set_change_visibility=lambda **kwargs: calls.append(("visibility", kwargs))),
+        )
+    )
+    original_bpy = faceset.bpy
+    try:
+        faceset.bpy = fake_bpy
+        faceset._apply_faceset_visibility_click(7, False)
+        assert calls == [
+            ("show_all", {"action": "SHOW"}),
+            ("visibility", {"mode": "TOGGLE", "active_face_set": 7}),
+        ]
+        calls.clear()
+        faceset._apply_faceset_visibility_click(7, True)
+        assert calls == [("visibility", {"mode": "HIDE_ACTIVE", "active_face_set": 7})]
+    finally:
+        faceset.bpy = original_bpy
+
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    bpy.ops.mesh.primitive_cube_add(size=2.0)
+    obj = bpy.context.object
+    face_set_attribute = obj.data.attributes.new(".sculpt_face_set", "INT", "FACE")
+    face_set_attribute.data[0].value = 7
+    assert _get_face_set_id(obj, 0) == 7
+
+
 def test_orbit_center_preserves_screen_offset() -> None:
     from zbrush_navigation.operators.navigation_modal import _get_view_offset, _set_view_rotation_around_center
 
@@ -426,6 +483,7 @@ def _has_runtime_navigation_items(keymap) -> bool:
         "zbrush_navigation.mask_pen_input",
         "zbrush_navigation.mask_lasso_input",
         "zbrush_navigation.mask_filter_click",
+        "zbrush_navigation.faceset_polygroup_input",
         "zbrush_navigation.multires_existing_level_up",
         "zbrush_navigation.multires_level_up",
         "zbrush_navigation.multires_level_down",
