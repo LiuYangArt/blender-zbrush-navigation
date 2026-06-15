@@ -278,6 +278,25 @@ def _add_mask_input_keymap_items(keymap: bpy.types.KeyMap, mask_input_mode: str)
         _add_keymap_item(
             "addon",
             keymap,
+            "zbrush_navigation.mask_filter_click",
+            "LEFTMOUSE",
+            "CLICK",
+            ctrl=True,
+            properties={"value": 1.0},
+        )
+        _add_keymap_item(
+            "addon",
+            keymap,
+            "zbrush_navigation.mask_filter_click",
+            "LEFTMOUSE",
+            "CLICK",
+            ctrl=True,
+            alt=True,
+            properties={"value": 0.0},
+        )
+        _add_keymap_item(
+            "addon",
+            keymap,
             "sculpt.brush_stroke",
             "LEFTMOUSE",
             "CLICK_DRAG",
