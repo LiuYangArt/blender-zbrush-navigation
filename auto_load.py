@@ -38,14 +38,14 @@ def register():
 
 
 def unregister():
-    for cls in reversed(ordered_classes):
-        bpy.utils.unregister_class(cls)
-
     for module in modules:
         if module.__name__ == __name__:
             continue
         if hasattr(module, "unregister"):
             module.unregister()
+
+    for cls in reversed(ordered_classes):
+        bpy.utils.unregister_class(cls)
 
 
 # Import modules

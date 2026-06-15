@@ -188,6 +188,14 @@ def refresh_zbrush_navigation() -> None:
     _runtime_state.use_zbrush_style_rotate = use_zbrush_style_rotate
 
 def restore_zbrush_navigation() -> None:
+    _restore_zbrush_navigation(show_status=True)
+
+
+def restore_zbrush_navigation_silently() -> None:
+    _restore_zbrush_navigation(show_status=False)
+
+
+def _restore_zbrush_navigation(*, show_status: bool) -> None:
     preferences = bpy.context.preferences
     _remove_added_items(_runtime_state.added_keymap_items, "runtime")
     _remove_empty_created_keymaps(_runtime_state.created_keymaps)
@@ -196,7 +204,8 @@ def restore_zbrush_navigation() -> None:
     if _runtime_state.original_use_rotate_around_active is not None:
         preferences.inputs.use_rotate_around_active = _runtime_state.original_use_rotate_around_active
     _restore_rotate_modal_axis_snap_keymap()
-    _show_status_message("ZBrush Navigation: original navigation restored")
+    if show_status:
+        _show_status_message("ZBrush Navigation: original navigation restored")
     _reset_runtime_state()
 
 
@@ -667,7 +676,13 @@ def _navigation_mode_timer() -> float | None:
 @persistent
 def _restore_on_load_pre(_dummy):
     if _runtime_state.applied:
-        restore_zbrush_navigation()
+        restore_zbrush_navigation_silently()
+
+
+@persistent
+def _restore_on_exit_pre(_dummy):
+    if _runtime_state.applied:
+        restore_zbrush_navigation_silently()
 
 
 def register():
@@ -678,6 +693,8 @@ def register():
         bpy.app.timers.register(_navigation_mode_timer, first_interval=TIMER_INTERVAL_SECONDS, persistent=True)
     if _restore_on_load_pre not in bpy.app.handlers.load_pre:
         bpy.app.handlers.load_pre.append(_restore_on_load_pre)
+    if _restore_on_exit_pre not in bpy.app.handlers.exit_pre:
+        bpy.app.handlers.exit_pre.append(_restore_on_exit_pre)
 
 
 def unregister():
@@ -687,6 +704,8 @@ def unregister():
         bpy.app.timers.unregister(_navigation_mode_timer)
     if _restore_on_load_pre in bpy.app.handlers.load_pre:
         bpy.app.handlers.load_pre.remove(_restore_on_load_pre)
+    if _restore_on_exit_pre in bpy.app.handlers.exit_pre:
+        bpy.app.handlers.exit_pre.remove(_restore_on_exit_pre)
     if _runtime_state.applied:
-        restore_zbrush_navigation()
+        restore_zbrush_navigation_silently()
     unregister_static_sculpt_keymaps()

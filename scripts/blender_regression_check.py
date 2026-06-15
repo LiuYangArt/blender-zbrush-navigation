@@ -18,6 +18,7 @@ def main() -> int:
 
     try:
         test_keymaps_are_addon_scoped()
+        test_sculpt_mode_addon_disable_restores_navigation()
         test_snap_keeps_projection()
         test_multires_level_operators()
         test_empty_drag_voxel_remesh_helpers()
@@ -204,6 +205,42 @@ def test_keymaps_are_addon_scoped() -> None:
         addon_preferences.use_zbrush_style_rotate = False
         input_preferences.use_mouse_emulate_3_button = original_emulate_3_button
         input_preferences.use_rotate_around_active = original_rotate_around_active
+
+
+def test_sculpt_mode_addon_disable_restores_navigation() -> None:
+    import zbrush_navigation.functions.navigation_state as navigation_state
+
+    keyconfigs = bpy.context.window_manager.keyconfigs
+    input_preferences = bpy.context.preferences.inputs
+    original_emulate_3_button = input_preferences.use_mouse_emulate_3_button
+    original_rotate_around_active = input_preferences.use_rotate_around_active
+
+    try:
+        bpy.ops.object.select_all(action="SELECT")
+        bpy.ops.object.delete()
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        bpy.ops.object.mode_set(mode="SCULPT")
+
+        input_preferences.use_mouse_emulate_3_button = True
+        input_preferences.use_rotate_around_active = False
+        navigation_state.apply_zbrush_navigation()
+        assert navigation_state._runtime_state.applied
+
+        bpy.ops.preferences.addon_disable(module=ADDON_MODULE)
+
+        addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
+        addon_view3d_keymap = keyconfigs.addon.keymaps.get("3D View")
+        assert addon_sculpt_keymap is None or not _has_runtime_navigation_items(addon_sculpt_keymap)
+        assert addon_view3d_keymap is None or not _has_runtime_navigation_items(addon_view3d_keymap)
+        assert input_preferences.use_mouse_emulate_3_button is True
+        assert input_preferences.use_rotate_around_active is False
+    finally:
+        if bpy.context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        input_preferences.use_mouse_emulate_3_button = original_emulate_3_button
+        input_preferences.use_rotate_around_active = original_rotate_around_active
+        if bpy.context.preferences.addons.get(ADDON_MODULE) is None:
+            bpy.ops.preferences.addon_enable(module=ADDON_MODULE)
 
 
 def test_snap_keeps_projection() -> None:
