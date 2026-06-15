@@ -7,12 +7,13 @@ import bpy
 from bpy_extras.view3d_utils import region_2d_to_origin_3d, region_2d_to_vector_3d
 
 
-MASK_DRAG_THRESHOLD_PIXELS = 4.0
+DEFAULT_MASK_DRAG_THRESHOLD_PIXELS = 10.0
 LASSO_MIN_POINT_DISTANCE_PIXELS = 1.5
 LASSO_HIT_TEST_TARGET_SAMPLES = 2500
 LASSO_HIT_TEST_MIN_STEP_PIXELS = 8.0
 MASK_OVERLAY_FILL_COLOR = (0.0, 0.0, 0.0, 0.65)
 MASK_OVERLAY_OUTLINE_COLOR = (0.0, 0.0, 0.0, 0.62)
+MASK_VALUE_EPSILON = 1e-6
 
 
 class ZNAV_OT_mask_pen_input(bpy.types.Operator):
@@ -31,9 +32,9 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
     _start_mouse_y = 0.0
     _current_mouse_x = 0.0
     _current_mouse_y = 0.0
+    _drag_started = False
     _path = None
     _start_time = 0.0
-    _drag_started = False
     _outside_drag_mode = None
 
     @classmethod
@@ -79,7 +80,7 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
         self._current_mouse_x = float(event.mouse_region_x)
         self._current_mouse_y = float(event.mouse_region_y)
         if not self._drag_started:
-            if self._drag_distance(event) < MASK_DRAG_THRESHOLD_PIXELS:
+            if self._drag_distance(event) < _get_mask_drag_threshold(context):
                 return
             self._begin_outside_drag(context, event)
             return
@@ -112,7 +113,7 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
             if _lasso_hits_active_object(context, self._region, self._region_3d, path):
                 _apply_native_lasso_mask(path, self.value)
             else:
-                _clear_mask()
+                _handle_empty_drag(context)
             return {"FINISHED"}
 
         if self._outside_drag_mode == "BOX":
@@ -122,7 +123,7 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
             if _box_hits_active_object(context, self._region, self._region_3d, start, end):
                 _apply_native_box_mask(start, end, self.value)
             else:
-                _clear_mask()
+                _handle_empty_drag(context)
             return {"FINISHED"}
 
         self._cleanup()
@@ -196,8 +197,10 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
     _draw_handler = None
     _path = None
     _start_time = 0.0
+    _start_mouse_x = 0.0
+    _start_mouse_y = 0.0
+    _max_drag_distance = 0.0
     _start_hits_active_object = False
-    _drag_started = False
 
     @classmethod
     def poll(cls, context):
@@ -210,7 +213,9 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
         self._path = []
         self._start_time = perf_counter()
         self._start_hits_active_object = _event_hits_active_object(context, event)
-        self._drag_started = False
+        self._start_mouse_x = float(event.mouse_region_x)
+        self._start_mouse_y = float(event.mouse_region_y)
+        self._max_drag_distance = 0.0
         self._append_path_point(event)
         self._draw_handler = bpy.types.SpaceView3D.draw_handler_add(_draw_lasso_overlay, (self,), "WINDOW", "POST_PIXEL")
         context.window_manager.modal_handler_add(self)
@@ -223,8 +228,8 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
             return {"CANCELLED"}
 
         if event.type == "MOUSEMOVE":
+            self._update_drag_distance(event)
             if self._append_path_point(event):
-                self._drag_started = True
                 self._tag_redraw()
             return {"RUNNING_MODAL"}
 
@@ -243,18 +248,22 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
         self._path.append(point)
         return True
 
+    def _update_drag_distance(self, event) -> None:
+        distance = hypot(event.mouse_region_x - self._start_mouse_x, event.mouse_region_y - self._start_mouse_y)
+        self._max_drag_distance = max(self._max_drag_distance, distance)
+
     def _finish_lasso(self, context):
         path = list(self._path)
         self._cleanup()
 
-        if not self._drag_started or len(path) < 3:
+        if self._max_drag_distance < _get_mask_drag_threshold(context) or len(path) < 3:
             return self._handle_click(context)
 
         if _lasso_hits_active_object(context, self._region, self._region_3d, path):
             _apply_native_lasso_mask(path, self.value)
             return {"FINISHED"}
 
-        _clear_mask()
+        _handle_empty_drag(context)
         return {"FINISHED"}
 
     def _handle_click(self, context):
@@ -274,12 +283,57 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
             self._area.tag_redraw()
 
 
+def _get_mask_drag_threshold(context) -> float:
+    addon_id = __package__.rsplit(".", 1)[0]
+    addon = context.preferences.addons.get(addon_id)
+    if addon is None:
+        return DEFAULT_MASK_DRAG_THRESHOLD_PIXELS
+    return addon.preferences.mask_drag_threshold_pixels
+
+
 def _clear_mask() -> None:
     bpy.ops.paint.mask_flood_fill(mode="VALUE", value=0.0)
 
 
 def _invert_mask() -> None:
     bpy.ops.paint.mask_flood_fill(mode="INVERT")
+
+
+def _handle_empty_drag(context) -> None:
+    if _should_voxel_remesh_on_empty_drag(context):
+        _run_empty_drag_voxel_remesh(context)
+        return
+    _clear_mask()
+
+
+def _should_voxel_remesh_on_empty_drag(context) -> bool:
+    settings = context.window_manager.zbrush_navigation_settings
+    obj = context.active_object
+    return bool(settings.enable_empty_drag_voxel_remesh and obj is not None and not _object_has_sculpt_mask(obj))
+
+
+def _object_has_sculpt_mask(obj) -> bool:
+    mask_attribute = obj.data.attributes.get(".sculpt_mask")
+    if mask_attribute is None:
+        return False
+    return any(mask_value.value > MASK_VALUE_EPSILON for mask_value in mask_attribute.data)
+
+
+def _run_empty_drag_voxel_remesh(context) -> None:
+    obj = context.active_object
+    if obj is None:
+        raise RuntimeError("Cannot voxel remesh without an active object")
+
+    from .multires import _find_multires_modifier, _temporary_object_mode
+
+    with _temporary_object_mode(obj):
+        context.view_layer.objects.active = obj
+        obj.select_set(True)
+        multires_modifier = _find_multires_modifier(obj)
+        if multires_modifier is not None:
+            multires_modifier.levels = multires_modifier.sculpt_levels
+            bpy.ops.object.modifier_apply(modifier=multires_modifier.name)
+        bpy.ops.object.voxel_remesh()
 
 
 def _apply_mask_filter_click(value: float) -> set[str]:
@@ -290,6 +344,7 @@ def _apply_mask_filter_click(value: float) -> set[str]:
         bpy.ops.sculpt.mask_filter(filter_type="SHARPEN")
         return {"FINISHED"}
     raise RuntimeError(f"Unsupported mask filter click value: {value}")
+
 
 def _draw_lasso_overlay(operator: ZNAV_OT_mask_lasso_input) -> None:
     _draw_filled_polygon_overlay([(point[0], point[1]) for point in operator._path])

@@ -20,6 +20,7 @@ def main() -> int:
         test_keymaps_are_addon_scoped()
         test_snap_keeps_projection()
         test_multires_level_operators()
+        test_empty_drag_voxel_remesh_helpers()
         test_orbit_center_preserves_screen_offset()
         test_active_object_center()
     finally:
@@ -41,6 +42,7 @@ def test_keymaps_are_addon_scoped() -> None:
 
     try:
         addon_preferences.use_zbrush_style_rotate = False
+        assert addon_preferences.mask_drag_threshold_pixels == 10.0
         input_preferences.use_mouse_emulate_3_button = True
         input_preferences.use_rotate_around_active = False
         legacy_sculpt_keymap = user_keyconfig.keymaps.new(name="Sculpt", space_type="EMPTY", region_type="WINDOW")
@@ -54,6 +56,7 @@ def test_keymaps_are_addon_scoped() -> None:
         navigation_state.apply_zbrush_navigation()
         settings = bpy.context.window_manager.zbrush_navigation_settings
         assert settings.pen_outside_drag_mode == "LASSO"
+        assert settings.enable_empty_drag_voxel_remesh is False
         assert input_preferences.use_mouse_emulate_3_button is False
         assert input_preferences.use_rotate_around_active is True
         addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
@@ -237,6 +240,34 @@ def test_multires_level_operators() -> None:
     assert modifier.levels == 2
 
     bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def test_empty_drag_voxel_remesh_helpers() -> None:
+    from zbrush_navigation.operators.mask import _object_has_sculpt_mask, _run_empty_drag_voxel_remesh
+
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    bpy.ops.mesh.primitive_cube_add(size=2.0)
+    obj = bpy.context.object
+    assert not _object_has_sculpt_mask(obj)
+
+    mask_attribute = obj.data.attributes.new(".sculpt_mask", "FLOAT", "POINT")
+    assert not _object_has_sculpt_mask(obj)
+    mask_attribute.data[0].value = 0.5
+    assert _object_has_sculpt_mask(obj)
+
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    bpy.ops.mesh.primitive_cube_add(size=2.0)
+    obj = bpy.context.object
+    obj.data.remesh_voxel_size = 0.5
+    modifier = obj.modifiers.new(name="Multires", type="MULTIRES")
+    bpy.ops.object.multires_subdivide(modifier=modifier.name, mode="CATMULL_CLARK")
+
+    _run_empty_drag_voxel_remesh(bpy.context)
+
+    assert all(modifier.type != "MULTIRES" for modifier in obj.modifiers)
+    assert len(obj.data.vertices) > 8
 
 def test_orbit_center_preserves_screen_offset() -> None:
     from zbrush_navigation.operators.navigation_modal import _get_view_offset, _set_view_rotation_around_center

@@ -27,6 +27,14 @@ class ZNAV_AP_preferences(bpy.types.AddonPreferences):
         max=35.0,
         precision=1,
     )
+    mask_drag_threshold_pixels: bpy.props.FloatProperty(
+        name="Mask Drag Threshold (px)",
+        description="Pointer movement required before an outside mask click becomes an outside drag",
+        default=10.0,
+        min=2.0,
+        max=40.0,
+        precision=1,
+    )
     use_zbrush_style_rotate: bpy.props.BoolProperty(
         name="Use ZBrush-Style Rotate",
         description="Use the add-on's custom RMB rotate instead of Blender native rotate",
@@ -39,6 +47,7 @@ class ZNAV_AP_preferences(bpy.types.AddonPreferences):
         settings = context.window_manager.zbrush_navigation_settings
         layout.prop(self, "show_sidebar_panel")
         layout.prop(self, "snap_drag_threshold_percent")
+        layout.prop(self, "mask_drag_threshold_pixels")
         layout.prop(self, "use_zbrush_style_rotate")
         layout.prop(settings, "enable_zbrush_navigation")
         layout.operator("zbrush_navigation.report_status", icon="INFO")

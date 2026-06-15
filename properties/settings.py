@@ -34,6 +34,11 @@ class ZNAV_PG_settings(bpy.types.PropertyGroup):
         ),
         default="LASSO",
     )
+    enable_empty_drag_voxel_remesh: bpy.props.BoolProperty(
+        name="Empty Drag Voxel Remesh",
+        description="Run voxel remesh on empty Ctrl-drag when the active sculpt object has no mask",
+        default=False,
+    )
 
 
 def register():

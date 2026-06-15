@@ -25,4 +25,5 @@ class ZNAV_PT_view3d_panel(bpy.types.Panel):
         layout.prop(settings, "mask_input_mode", expand=True)
         if settings.mask_input_mode == "PEN":
             layout.prop(settings, "pen_outside_drag_mode", expand=True)
+        layout.prop(settings, "enable_empty_drag_voxel_remesh")
         layout.operator("zbrush_navigation.report_status", icon="INFO")
