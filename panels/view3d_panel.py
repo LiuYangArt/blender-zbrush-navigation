@@ -31,4 +31,6 @@ class ZNAV_PT_view3d_panel(bpy.types.Panel):
         layout.prop(settings, "faceset_front_faces_only")
         if settings.faceset_gesture == "LINE":
             layout.prop(settings, "faceset_line_limit_to_segment")
+        layout.separator()
+        layout.operator("zbrush_navigation.project_details_from_selected_high_mesh", icon="MOD_MULTIRES")
         layout.operator("zbrush_navigation.report_status", icon="INFO")

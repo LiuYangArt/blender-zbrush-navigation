@@ -21,6 +21,7 @@ def main() -> int:
         test_sculpt_mode_addon_disable_restores_navigation()
         test_snap_keeps_projection()
         test_multires_level_operators()
+        test_multires_detail_projection_operator()
         test_empty_drag_voxel_remesh_helpers()
         test_mask_drag_value_uses_release_alt_state()
         test_mask_selection_overlay_helpers()
@@ -292,6 +293,57 @@ def test_multires_level_operators() -> None:
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
+def test_multires_detail_projection_operator() -> None:
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    bpy.ops.mesh.primitive_cube_add(size=2.0)
+    target = bpy.context.object
+    target.name = "ProjectionTarget"
+    modifier = target.modifiers.new(name="Multires", type="MULTIRES")
+    bpy.context.view_layer.objects.active = target
+    bpy.ops.object.multires_subdivide(modifier=modifier.name, mode="CATMULL_CLARK")
+    modifier.levels = 1
+    modifier.sculpt_levels = 1
+    bpy.context.view_layer.update()
+
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    source_mesh = bpy.data.meshes.new_from_object(target.evaluated_get(depsgraph), depsgraph=depsgraph)
+    for vertex in source_mesh.vertices:
+        vertex.co.x += 0.25
+    source_mesh.update()
+    source = bpy.data.objects.new("ProjectionSource", source_mesh)
+    original_source_positions = [vertex.co.copy() for vertex in source.data.vertices]
+    bpy.context.collection.objects.link(source)
+
+    before_positions = _evaluated_vertex_positions(target)
+    bpy.ops.object.select_all(action="DESELECT")
+    source.select_set(True)
+    target.select_set(True)
+    bpy.context.view_layer.objects.active = target
+
+    result = bpy.ops.zbrush_navigation.project_details_from_selected_high_mesh()
+
+    after_positions = _evaluated_vertex_positions(target)
+    assert "FINISHED" in result
+    remaining_modifier = target.modifiers.get("Multires")
+    assert remaining_modifier is not None
+    assert remaining_modifier.type == "MULTIRES"
+    assert modifier.total_levels == 1
+    assert modifier.sculpt_levels == 1
+    assert modifier.levels == 1
+    assert max(vertex.x for vertex in after_positions) > max(vertex.x for vertex in before_positions) + 0.1
+    assert any((after - before).length > EPSILON for before, after in zip(before_positions, after_positions))
+    assert all(
+        (vertex.co - original).length < EPSILON
+        for vertex, original in zip(source.data.vertices, original_source_positions)
+    )
+
+    bpy.ops.object.select_all(action="DESELECT")
+    target.select_set(True)
+    bpy.context.view_layer.objects.active = target
+    bpy.ops.object.mode_set(mode="SCULPT")
+    bpy.ops.object.mode_set(mode="OBJECT")
+
 def test_empty_drag_voxel_remesh_helpers() -> None:
     from zbrush_navigation.operators.mask import _object_has_sculpt_mask, _run_empty_drag_voxel_remesh
 
@@ -498,6 +550,14 @@ def test_active_object_center() -> None:
     center = _get_active_object_center(bpy.context)
     assert (center - Vector((3.0, 4.0, 5.0))).length < EPSILON
 
+
+def _evaluated_vertex_positions(obj) -> list[Vector]:
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    mesh = bpy.data.meshes.new_from_object(obj.evaluated_get(depsgraph), depsgraph=depsgraph)
+    try:
+        return [vertex.co.copy() for vertex in mesh.vertices]
+    finally:
+        bpy.data.meshes.remove(mesh)
 
 def _get_addon_preferences():
     addon = bpy.context.preferences.addons.get(ADDON_MODULE)
