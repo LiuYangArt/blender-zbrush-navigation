@@ -111,24 +111,20 @@ def test_keymaps_are_addon_scoped() -> None:
         navigation_state.refresh_zbrush_navigation()
         addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
         assert _has_keymap_item(addon_sculpt_keymap, "view3d.rotate", "RIGHTMOUSE")
-        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_pen_input", "LEFTMOUSE", ctrl=True, float_value=1.0)
+        assert not _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_pen_input", "LEFTMOUSE", ctrl=True, float_value=1.0)
         assert _has_keymap_item(
             addon_sculpt_keymap,
-            "paint.mask_lasso_gesture",
+            "zbrush_navigation.mask_lasso_input",
             "LEFTMOUSE",
             ctrl=True,
-            value="CLICK_DRAG",
-            mode="VALUE",
             float_value=1.0,
         )
         assert _has_keymap_item(
             addon_sculpt_keymap,
-            "paint.mask_lasso_gesture",
+            "zbrush_navigation.mask_lasso_input",
             "LEFTMOUSE",
             ctrl=True,
             alt=True,
-            value="CLICK_DRAG",
-            mode="VALUE",
             float_value=0.0,
         )
         assert not _has_keymap_item(
@@ -316,6 +312,7 @@ def _has_runtime_navigation_items(keymap) -> bool:
         "zbrush_navigation.zbrush_rotate_modal",
         "zbrush_navigation.snap_view_to_nearest_axis",
         "zbrush_navigation.mask_pen_input",
+        "zbrush_navigation.mask_lasso_input",
         "zbrush_navigation.multires_existing_level_up",
         "zbrush_navigation.multires_level_up",
         "zbrush_navigation.multires_level_down",

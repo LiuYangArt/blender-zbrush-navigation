@@ -255,27 +255,26 @@ def _add_zbrush_keymap_items() -> None:
 
 
 def _add_mask_input_keymap_items(keymap: bpy.types.KeyMap, mask_input_mode: str) -> None:
-    _add_keymap_item(
-        "addon",
-        keymap,
-        "zbrush_navigation.mask_pen_input",
-        "LEFTMOUSE",
-        "PRESS",
-        ctrl=True,
-        properties={"value": 1.0},
-    )
-    _add_keymap_item(
-        "addon",
-        keymap,
-        "zbrush_navigation.mask_pen_input",
-        "LEFTMOUSE",
-        "PRESS",
-        ctrl=True,
-        alt=True,
-        properties={"value": 0.0},
-    )
-
     if mask_input_mode == "PEN":
+        _add_keymap_item(
+            "addon",
+            keymap,
+            "zbrush_navigation.mask_pen_input",
+            "LEFTMOUSE",
+            "PRESS",
+            ctrl=True,
+            properties={"value": 1.0},
+        )
+        _add_keymap_item(
+            "addon",
+            keymap,
+            "zbrush_navigation.mask_pen_input",
+            "LEFTMOUSE",
+            "PRESS",
+            ctrl=True,
+            alt=True,
+            properties={"value": 0.0},
+        )
         _add_keymap_item(
             "addon",
             keymap,
@@ -301,21 +300,21 @@ def _add_mask_input_keymap_items(keymap: bpy.types.KeyMap, mask_input_mode: str)
         _add_keymap_item(
             "addon",
             keymap,
-            "paint.mask_lasso_gesture",
+            "zbrush_navigation.mask_lasso_input",
             "LEFTMOUSE",
-            "CLICK_DRAG",
+            "PRESS",
             ctrl=True,
-            properties={"mode": "VALUE", "value": 1.0},
+            properties={"value": 1.0},
         )
         _add_keymap_item(
             "addon",
             keymap,
-            "paint.mask_lasso_gesture",
+            "zbrush_navigation.mask_lasso_input",
             "LEFTMOUSE",
-            "CLICK_DRAG",
+            "PRESS",
             ctrl=True,
             alt=True,
-            properties={"mode": "VALUE", "value": 0.0},
+            properties={"value": 0.0},
         )
         return
 
