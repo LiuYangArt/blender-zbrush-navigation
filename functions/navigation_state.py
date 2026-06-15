@@ -234,7 +234,7 @@ def _add_zbrush_keymap_items() -> None:
 
     for keymap_name in NAVIGATION_KEYMAP_NAMES:
         keymap = _get_or_create_runtime_keymap(addon_keyconfig, keymap_name, space_type=_space_type_for_keymap(keymap_name))
-        _add_keymap_item("addon", keymap, rotate_operator, "RIGHTMOUSE", "PRESS")
+        _add_keymap_item("addon", keymap, rotate_operator, "RIGHTMOUSE", "CLICK_DRAG")
         _add_keymap_item("addon", keymap, "view3d.zoom", "RIGHTMOUSE", "PRESS", ctrl=True)
         _add_keymap_item("addon", keymap, "view3d.move", "RIGHTMOUSE", "PRESS", alt=True)
         if keymap_name == SCULPT_KEYMAP_NAME:

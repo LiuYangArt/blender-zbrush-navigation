@@ -50,6 +50,7 @@ def test_keymaps_are_addon_scoped() -> None:
         legacy_sculpt_keymap = user_keyconfig.keymaps.new(name="Sculpt", space_type="EMPTY", region_type="WINDOW")
         legacy_sculpt_keymap.keymap_items.new("zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE", "PRESS")
         legacy_sculpt_keymap.keymap_items.new("view3d.zoom", "RIGHTMOUSE", "PRESS", ctrl=True)
+        legacy_sculpt_keymap.keymap_items.new("wm.call_menu", "RIGHTMOUSE", "PRESS")
         rotate_modal_keymap = _get_or_create_user_rotate_modal_keymap(user_keyconfig)
         _remove_rotate_modal_axis_snap_items(rotate_modal_keymap)
         rotate_modal_keymap.keymap_items.new_modal("AXIS_SNAP_ENABLE", "LEFT_ALT", "PRESS")
@@ -67,8 +68,10 @@ def test_keymaps_are_addon_scoped() -> None:
         assert addon_sculpt_keymap is not None, "Missing add-on Sculpt keymap"
         assert addon_view3d_keymap is not None, "Missing add-on 3D View keymap"
         assert _has_keymap_item(addon_sculpt_keymap, "view3d.view_persportho", "P")
-        assert _has_keymap_item(addon_sculpt_keymap, "view3d.rotate", "RIGHTMOUSE")
+        assert _has_keymap_item(addon_sculpt_keymap, "view3d.rotate", "RIGHTMOUSE", value="CLICK_DRAG")
+        assert not _has_keymap_item(addon_sculpt_keymap, "view3d.rotate", "RIGHTMOUSE")
         assert not _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE")
+        assert _has_keymap_item(legacy_sculpt_keymap, "wm.call_menu", "RIGHTMOUSE")
         assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.snap_view_to_nearest_axis", "RIGHTMOUSE", shift=True)
         assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.multires_existing_level_up", "D")
         assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.multires_level_up", "D", ctrl=True)
@@ -132,7 +135,7 @@ def test_keymaps_are_addon_scoped() -> None:
         settings.mask_input_mode = "LASSO"
         navigation_state.refresh_zbrush_navigation()
         addon_sculpt_keymap = keyconfigs.addon.keymaps.get("Sculpt")
-        assert _has_keymap_item(addon_sculpt_keymap, "view3d.rotate", "RIGHTMOUSE")
+        assert _has_keymap_item(addon_sculpt_keymap, "view3d.rotate", "RIGHTMOUSE", value="CLICK_DRAG")
         assert not _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.mask_pen_input", "LEFTMOUSE", ctrl=True, float_value=1.0)
         assert not _has_keymap_item(
             addon_sculpt_keymap,
@@ -174,7 +177,8 @@ def test_keymaps_are_addon_scoped() -> None:
         assert _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_ENABLE", "LEFT_ALT", "PRESS")
         assert _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_DISABLE", "LEFT_ALT", "RELEASE")
         assert not _has_modal_keymap_item(rotate_modal_keymap, "AXIS_SNAP_ENABLE", "LEFT_SHIFT", "PRESS")
-        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE")
+        assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE", value="CLICK_DRAG")
+        assert not _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE")
         assert _has_keymap_item(addon_sculpt_keymap, "zbrush_navigation.zbrush_rotate_modal", "RIGHTMOUSE", shift=True)
         assert not _has_keymap_item(addon_sculpt_keymap, "view3d.rotate", "RIGHTMOUSE")
 
