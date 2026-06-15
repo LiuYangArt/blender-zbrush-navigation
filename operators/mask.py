@@ -112,7 +112,7 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
             if _lasso_hits_active_object(context, self._region, self._region_3d, path):
                 _apply_native_lasso_mask(path, self.value)
             else:
-                bpy.ops.paint.mask_flood_fill(mode="VALUE", value=0.0)
+                _clear_mask()
             return {"FINISHED"}
 
         if self._outside_drag_mode == "BOX":
@@ -122,7 +122,7 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
             if _box_hits_active_object(context, self._region, self._region_3d, start, end):
                 _apply_native_box_mask(start, end, self.value)
             else:
-                bpy.ops.paint.mask_flood_fill(mode="VALUE", value=0.0)
+                _clear_mask()
             return {"FINISHED"}
 
         self._cleanup()
@@ -130,7 +130,7 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
 
     def _handle_click(self):
         self._cleanup()
-        bpy.ops.paint.mask_flood_fill(mode="INVERT")
+        _invert_mask()
         return {"FINISHED"}
 
     def _append_path_point(self, event, *, force: bool = False) -> bool:
@@ -254,13 +254,13 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
             _apply_native_lasso_mask(path, self.value)
             return {"FINISHED"}
 
-        bpy.ops.paint.mask_flood_fill(mode="VALUE", value=0.0)
+        _clear_mask()
         return {"FINISHED"}
 
     def _handle_click(self, context):
         if self._start_hits_active_object:
             return _apply_mask_filter_click(self.value)
-        bpy.ops.paint.mask_flood_fill(mode="INVERT")
+        _invert_mask()
         return {"FINISHED"}
 
     def _cleanup(self) -> None:
@@ -274,8 +274,15 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
             self._area.tag_redraw()
 
 
+def _clear_mask() -> None:
+    bpy.ops.paint.mask_flood_fill(mode="VALUE", value=0.0)
 
-def _apply_mask_filter_click(value: float):
+
+def _invert_mask() -> None:
+    bpy.ops.paint.mask_flood_fill(mode="INVERT")
+
+
+def _apply_mask_filter_click(value: float) -> set[str]:
     if value == 1.0:
         bpy.ops.sculpt.mask_filter(filter_type="SMOOTH")
         return {"FINISHED"}
