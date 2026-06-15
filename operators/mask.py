@@ -8,7 +8,7 @@ from bpy_extras.view3d_utils import region_2d_to_origin_3d, region_2d_to_vector_
 
 
 MASK_DRAG_THRESHOLD_PIXELS = 4.0
-LASSO_MIN_POINT_DISTANCE_PIXELS = 3.0
+LASSO_MIN_POINT_DISTANCE_PIXELS = 1.5
 LASSO_HIT_TEST_TARGET_SAMPLES = 2500
 LASSO_HIT_TEST_MIN_STEP_PIXELS = 8.0
 
@@ -172,15 +172,27 @@ def _draw_lasso_overlay(operator: ZNAV_OT_mask_lasso_input) -> None:
 
     import gpu
     from gpu_extras.batch import batch_for_shader
+    from mathutils import Vector
+    from mathutils.geometry import tessellate_polygon
 
     coords = [(point[0], point[1]) for point in operator._path]
+    closed_coords = coords + [coords[0]]
     shader = gpu.shader.from_builtin("UNIFORM_COLOR")
-    batch = batch_for_shader(shader, "LINE_STRIP", {"pos": coords})
+
     gpu.state.blend_set("ALPHA")
-    gpu.state.line_width_set(2.0)
+    if len(coords) >= 3:
+        polygon = [[Vector((x, y, 0.0)) for x, y in coords]]
+        indices = tessellate_polygon(polygon)
+        fill_batch = batch_for_shader(shader, "TRIS", {"pos": coords}, indices=indices)
+        shader.bind()
+        shader.uniform_float("color", (0.0, 0.0, 0.0, 0.65))
+        fill_batch.draw(shader)
+
+    outline_batch = batch_for_shader(shader, "LINE_STRIP", {"pos": closed_coords})
+    gpu.state.line_width_set(1.0)
     shader.bind()
-    shader.uniform_float("color", (0.18, 0.62, 1.0, 0.95))
-    batch.draw(shader)
+    shader.uniform_float("color", (0.0, 0.0, 0.0, 0.62))
+    outline_batch.draw(shader)
     gpu.state.line_width_set(1.0)
     gpu.state.blend_set("NONE")
 
