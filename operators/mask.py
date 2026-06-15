@@ -461,6 +461,8 @@ def _run_empty_drag_voxel_remesh(context) -> None:
     with _temporary_object_mode(obj):
         context.view_layer.objects.active = obj
         obj.select_set(True)
+        if obj.data.users > 1:
+            obj.data = obj.data.copy()
         multires_modifier = _find_multires_modifier(obj)
         if multires_modifier is not None:
             multires_modifier.levels = multires_modifier.sculpt_levels

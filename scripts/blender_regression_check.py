@@ -276,6 +276,27 @@ def test_empty_drag_voxel_remesh_helpers() -> None:
     assert all(modifier.type != "MULTIRES" for modifier in obj.modifiers)
     assert remeshed_vertex_count > 8
 
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    bpy.ops.mesh.primitive_cube_add(size=2.0)
+    obj = bpy.context.object
+    obj.data.remesh_voxel_size = 0.5
+    shared_mesh = obj.data
+    linked_obj = obj.copy()
+    linked_obj.data = shared_mesh
+    bpy.context.collection.objects.link(linked_obj)
+    assert shared_mesh.users == 2
+    modifier = obj.modifiers.new(name="Multires", type="MULTIRES")
+    bpy.ops.object.multires_subdivide(modifier=modifier.name, mode="CATMULL_CLARK")
+
+    _run_empty_drag_voxel_remesh(bpy.context)
+
+    assert obj.data is not shared_mesh
+    assert obj.data.users == 1
+    assert shared_mesh.users == 1
+    assert all(modifier.type != "MULTIRES" for modifier in obj.modifiers)
+    assert len(obj.data.vertices) > 8
+
 
 def test_mask_drag_value_uses_release_alt_state() -> None:
     from types import SimpleNamespace
