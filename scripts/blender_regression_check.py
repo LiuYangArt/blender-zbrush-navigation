@@ -355,21 +355,70 @@ def test_faceset_helpers() -> None:
     calls = []
     fake_bpy = SimpleNamespace(
         ops=SimpleNamespace(
-            paint=SimpleNamespace(hide_show_all=lambda **kwargs: calls.append(("show_all", kwargs))),
+            paint=SimpleNamespace(
+                hide_show_all=lambda **kwargs: calls.append(("show_all", kwargs)),
+                visibility_invert=lambda **kwargs: calls.append(("invert", kwargs)),
+            ),
             sculpt=SimpleNamespace(face_set_change_visibility=lambda **kwargs: calls.append(("visibility", kwargs))),
         )
     )
     original_bpy = faceset.bpy
     try:
         faceset.bpy = fake_bpy
-        faceset._apply_faceset_visibility_click(7, False)
+        mesh = SimpleNamespace(
+            attributes={
+                ".sculpt_face_set": SimpleNamespace(
+                    domain="FACE",
+                    data=[SimpleNamespace(value=7), SimpleNamespace(value=8), SimpleNamespace(value=8)],
+                )
+            }
+        )
+        obj = SimpleNamespace(data=mesh)
+
+        faceset._apply_faceset_visibility_click(obj, 7, False)
         assert calls == [
             ("show_all", {"action": "SHOW"}),
             ("visibility", {"mode": "TOGGLE", "active_face_set": 7}),
         ]
         calls.clear()
-        faceset._apply_faceset_visibility_click(7, True)
+
+        mesh.attributes[".hide_poly"] = SimpleNamespace(
+            domain="FACE",
+            data=[SimpleNamespace(value=False), SimpleNamespace(value=True), SimpleNamespace(value=True)],
+        )
+        faceset._apply_faceset_visibility_click(obj, 7, False)
+        assert calls == [("invert", {})]
+        calls.clear()
+
+        mesh.attributes[".hide_poly"] = SimpleNamespace(
+            domain="FACE",
+            data=[SimpleNamespace(value=False), SimpleNamespace(value=False), SimpleNamespace(value=True)],
+        )
+        faceset._apply_faceset_visibility_click(obj, 7, False)
         assert calls == [("visibility", {"mode": "HIDE_ACTIVE", "active_face_set": 7})]
+        calls.clear()
+
+        faceset._apply_faceset_visibility_click(obj, 7, True)
+        assert calls == [("visibility", {"mode": "HIDE_ACTIVE", "active_face_set": 7})]
+        calls.clear()
+
+        mesh.attributes.pop(".hide_poly")
+        faceset._invert_visibility_if_any_hidden(obj)
+        assert calls == []
+
+        mesh.attributes[".hide_poly"] = SimpleNamespace(
+            domain="FACE",
+            data=[SimpleNamespace(value=False), SimpleNamespace(value=False), SimpleNamespace(value=False)],
+        )
+        faceset._invert_visibility_if_any_hidden(obj)
+        assert calls == []
+
+        mesh.attributes[".hide_poly"] = SimpleNamespace(
+            domain="FACE",
+            data=[SimpleNamespace(value=False), SimpleNamespace(value=True), SimpleNamespace(value=False)],
+        )
+        faceset._invert_visibility_if_any_hidden(obj)
+        assert calls == [("invert", {})]
     finally:
         faceset.bpy = original_bpy
 

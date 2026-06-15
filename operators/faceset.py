@@ -26,6 +26,7 @@ FACESET_ADD_OVERLAY_FILL_COLOR = (0.0, 0.85, 0.25, 0.28)
 FACESET_HIDE_OVERLAY_FILL_COLOR = (1.0, 0.05, 0.02, 0.28)
 FACESET_OVERLAY_OUTLINE_COLOR = (1.0, 1.0, 1.0, 0.75)
 FACE_SET_ATTRIBUTE_NAMES = (".sculpt_face_set", "sculpt_face_set")
+HIDE_POLY_ATTRIBUTE_NAME = ".hide_poly"
 
 
 class ZNAV_OT_faceset_polygroup_input(bpy.types.Operator):
@@ -145,7 +146,7 @@ class ZNAV_OT_faceset_polygroup_input(bpy.types.Operator):
         self._cleanup()
 
         if not _gesture_hits_active_object(context, region, region_3d, gesture_mode, start, end, path):
-            _invert_visibility()
+            _invert_visibility_if_any_hidden(context.active_object)
             return {"FINISHED"}
 
         _apply_native_faceset_gesture(gesture_mode, start, end, path, front_faces_only, limit_to_segment)
@@ -158,8 +159,9 @@ class ZNAV_OT_faceset_polygroup_input(bpy.types.Operator):
         if face_index is None:
             _show_all_visibility()
             return {"FINISHED"}
-        face_set_id = _get_face_set_id(context.active_object, face_index)
-        _apply_faceset_visibility_click(face_set_id, _event_is_hiding(event))
+        active_object = context.active_object
+        face_set_id = _get_face_set_id(active_object, face_index)
+        _apply_faceset_visibility_click(active_object, face_set_id, _event_is_hiding(event))
         return {"FINISHED"}
 
     def _append_path_point(self, event, *, force: bool = False) -> bool:
@@ -315,13 +317,55 @@ def _to_operator_path(path: list[tuple[float, float, float]]) -> list[dict[str, 
     return [{"name": str(index), "loc": (point[0], point[1]), "time": point[2]} for index, point in enumerate(path)]
 
 
-
-def _apply_faceset_visibility_click(face_set_id: int, is_hiding: bool) -> None:
+def _apply_faceset_visibility_click(obj, face_set_id: int, is_hiding: bool) -> None:
     if is_hiding:
-        bpy.ops.sculpt.face_set_change_visibility(mode="HIDE_ACTIVE", active_face_set=face_set_id)
+        _hide_faceset(face_set_id)
         return
+
+    visible_face_sets, has_hidden_faces = _get_visible_face_set_ids(obj)
+    if has_hidden_faces:
+        if visible_face_sets == {face_set_id}:
+            _invert_visibility()
+            return
+        _hide_faceset(face_set_id)
+        return
+
     _show_all_visibility()
     bpy.ops.sculpt.face_set_change_visibility(mode="TOGGLE", active_face_set=face_set_id)
+
+
+def _hide_faceset(face_set_id: int) -> None:
+    bpy.ops.sculpt.face_set_change_visibility(mode="HIDE_ACTIVE", active_face_set=face_set_id)
+
+
+def _get_visible_face_set_ids(obj) -> tuple[set[int], bool]:
+    face_set_attribute = _get_face_set_attribute(obj)
+    hidden_attribute = _get_hidden_face_attribute(obj)
+    if hidden_attribute is not None and len(hidden_attribute.data) != len(face_set_attribute.data):
+        raise RuntimeError(
+            f"Hide attribute length {len(hidden_attribute.data)} does not match Face Set length {len(face_set_attribute.data)}"
+        )
+
+    visible_face_sets = set()
+    has_hidden_faces = False
+    for index, face_set_value in enumerate(face_set_attribute.data):
+        is_hidden = hidden_attribute is not None and bool(hidden_attribute.data[index].value)
+        has_hidden_faces = has_hidden_faces or is_hidden
+        if not is_hidden:
+            visible_face_sets.add(int(face_set_value.value))
+    return visible_face_sets, has_hidden_faces
+
+
+def _invert_visibility_if_any_hidden(obj) -> None:
+    if _object_has_hidden_faces(obj):
+        _invert_visibility()
+
+
+def _object_has_hidden_faces(obj) -> bool:
+    if obj is None:
+        return False
+    hidden_attribute = _get_hidden_face_attribute(obj)
+    return hidden_attribute is not None and any(bool(face.value) for face in hidden_attribute.data)
 
 
 def _invert_visibility() -> None:
@@ -348,6 +392,20 @@ def _get_face_set_id(obj, face_index: int) -> int:
     if face_index < 0:
         raise RuntimeError(f"Cannot read Face Set id from invalid face index: {face_index}")
 
+    attribute = _get_face_set_attribute(obj)
+    if face_index >= len(attribute.data):
+        raise RuntimeError(f"Face index {face_index} is outside Face Set attribute length {len(attribute.data)}")
+    return int(attribute.data[face_index].value)
+
+
+def _get_hidden_face_attribute(obj):
+    attribute = obj.data.attributes.get(HIDE_POLY_ATTRIBUTE_NAME)
+    if attribute is not None and attribute.domain != "FACE":
+        raise RuntimeError(f"Unexpected hide attribute domain: {attribute.domain}")
+    return attribute
+
+
+def _get_face_set_attribute(obj):
     attribute = None
     for name in FACE_SET_ATTRIBUTE_NAMES:
         attribute = obj.data.attributes.get(name)
@@ -357,6 +415,4 @@ def _get_face_set_id(obj, face_index: int) -> int:
         raise RuntimeError(f"Cannot find Sculpt Face Set attribute; tried {FACE_SET_ATTRIBUTE_NAMES}")
     if attribute.domain != "FACE":
         raise RuntimeError(f"Unexpected Face Set attribute domain: {attribute.domain}")
-    if face_index >= len(attribute.data):
-        raise RuntimeError(f"Face index {face_index} is outside Face Set attribute length {len(attribute.data)}")
-    return int(attribute.data[face_index].value)
+    return attribute
