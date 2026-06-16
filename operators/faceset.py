@@ -9,15 +9,26 @@ from bpy_extras.view3d_utils import region_2d_to_origin_3d, region_2d_to_vector_
 from .mask import (
     LASSO_HIT_TEST_MIN_STEP_PIXELS,
     LASSO_MIN_POINT_DISTANCE_PIXELS,
+    ADD_MASK_OVERLAY_FILL_COLOR,
+    ADD_MASK_OVERLAY_OUTLINE_COLOR,
+    SELECTION_TARGET_FACESET,
+    SELECTION_TARGET_MASK,
+    SUBTRACT_MASK_OVERLAY_FILL_COLOR,
+    SUBTRACT_MASK_OVERLAY_OUTLINE_COLOR,
+    _apply_native_box_mask,
+    _apply_native_lasso_mask,
     _box_hits_active_object,
     _draw_filled_polygon_overlay,
     _event_mouse_coords,
     _event_mouse_delta,
     _get_box_polygon,
     _get_mask_drag_threshold,
+    _handle_empty_drag,
     _lasso_hits_active_object,
     _screen_point_hits_active_object,
     _translate_lasso_path,
+    _event_is_selection_target_toggle,
+    _next_selection_target,
     _can_use_sculpt_mask,
 )
 
@@ -51,6 +62,7 @@ class ZNAV_OT_faceset_polygroup_input(bpy.types.Operator):
     _path = None
     _start_time = 0.0
     _gesture_mode = None
+    _selection_target = SELECTION_TARGET_FACESET
 
     @classmethod
     def poll(cls, context):
@@ -72,6 +84,7 @@ class ZNAV_OT_faceset_polygroup_input(bpy.types.Operator):
         self._move_mouse_y = self._start_mouse_y
         self._path = []
         self._start_time = perf_counter()
+        self._selection_target = SELECTION_TARGET_FACESET
         self._gesture_mode = None
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
@@ -80,6 +93,10 @@ class ZNAV_OT_faceset_polygroup_input(bpy.types.Operator):
         if event.type == "ESC":
             self._cleanup()
             return {"CANCELLED"}
+
+        if _event_is_selection_target_toggle(event) and self._can_toggle_selection_target():
+            self._toggle_selection_target()
+            return {"RUNNING_MODAL"}
 
         self._update_hiding_mode(event)
 
@@ -144,6 +161,10 @@ class ZNAV_OT_faceset_polygroup_input(bpy.types.Operator):
         front_faces_only = context.window_manager.zbrush_navigation_settings.faceset_front_faces_only
         limit_to_segment = context.window_manager.zbrush_navigation_settings.faceset_line_limit_to_segment
         self._cleanup()
+
+        if self._selection_target == SELECTION_TARGET_MASK:
+            _finish_mask_from_faceset(context, region, region_3d, gesture_mode, start, end, path, event)
+            return {"FINISHED"}
 
         if not _gesture_hits_active_object(context, region, region_3d, gesture_mode, start, end, path):
             _invert_visibility_if_any_hidden(context.active_object)
@@ -216,6 +237,13 @@ class ZNAV_OT_faceset_polygroup_input(bpy.types.Operator):
     def _drag_distance(self, event) -> float:
         return hypot(event.mouse_region_x - self._start_mouse_x, event.mouse_region_y - self._start_mouse_y)
 
+    def _can_toggle_selection_target(self) -> bool:
+        return self._drag_started and self._gesture_mode in {"BOX", "LASSO"}
+
+    def _toggle_selection_target(self) -> None:
+        self._selection_target = _next_selection_target(self._selection_target)
+        self._tag_redraw()
+
     def _cleanup(self) -> None:
         if self._draw_handler is not None:
             bpy.types.SpaceView3D.draw_handler_remove(self._draw_handler, "WINDOW")
@@ -244,6 +272,10 @@ def _draw_faceset_overlay(operator: ZNAV_OT_faceset_polygroup_input) -> None:
 
 
 def _faceset_overlay_colors(operator) -> tuple[tuple[float, float, float, float], tuple[float, float, float, float]]:
+    if operator._selection_target == SELECTION_TARGET_MASK:
+        if operator._is_hiding:
+            return SUBTRACT_MASK_OVERLAY_FILL_COLOR, SUBTRACT_MASK_OVERLAY_OUTLINE_COLOR
+        return ADD_MASK_OVERLAY_FILL_COLOR, ADD_MASK_OVERLAY_OUTLINE_COLOR
     fill_color = FACESET_HIDE_OVERLAY_FILL_COLOR if operator._is_hiding else FACESET_ADD_OVERLAY_FILL_COLOR
     return fill_color, FACESET_OVERLAY_OUTLINE_COLOR
 
@@ -269,6 +301,37 @@ def _line_hits_active_object(context, region, region_3d, start: tuple[float, flo
         if _screen_point_hits_active_object(context, region, region_3d, point):
             return True
     return False
+
+
+def _finish_mask_from_faceset(
+    context,
+    region,
+    region_3d,
+    gesture_mode: str,
+    start: tuple[float, float],
+    end: tuple[float, float],
+    path: list[tuple[float, float, float]],
+    event,
+) -> None:
+    if gesture_mode == "BOX":
+        if _box_hits_active_object(context, region, region_3d, start, end):
+            _apply_native_box_mask(start, end, _mask_value_from_faceset_event(event))
+        else:
+            _handle_empty_drag(context)
+        return
+
+    if gesture_mode == "LASSO":
+        if _lasso_hits_active_object(context, region, region_3d, path):
+            _apply_native_lasso_mask(path, _mask_value_from_faceset_event(event))
+        else:
+            _handle_empty_drag(context)
+        return
+
+    raise RuntimeError(f"Cannot switch Face Set gesture to Mask gesture: {gesture_mode}")
+
+
+def _mask_value_from_faceset_event(event) -> float:
+    return 0.0 if _event_is_hiding(event) else 1.0
 
 
 def _apply_native_faceset_gesture(

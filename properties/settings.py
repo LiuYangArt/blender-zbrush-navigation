@@ -32,7 +32,7 @@ class ZNAV_PG_settings(bpy.types.PropertyGroup):
             ("LASSO", "Lasso", "Use native lasso mask gesture"),
             ("BOX", "Box", "Use native box mask gesture"),
         ),
-        default="LASSO",
+        default="BOX",
     )
     enable_empty_drag_voxel_remesh: bpy.props.BoolProperty(
         name="Empty Drag Voxel Remesh",

@@ -15,6 +15,11 @@ ADD_MASK_OVERLAY_FILL_COLOR = (0.0, 0.0, 0.0, 0.65)
 ADD_MASK_OVERLAY_OUTLINE_COLOR = (1.0, 1.0, 1.0, 0.5)
 SUBTRACT_MASK_OVERLAY_FILL_COLOR = (1.0, 1.0, 1.0, 0.15)
 SUBTRACT_MASK_OVERLAY_OUTLINE_COLOR = (1.0, 1.0, 1.0, 0.5)
+FACESET_ADD_OVERLAY_FILL_COLOR = (0.0, 0.85, 0.25, 0.28)
+FACESET_HIDE_OVERLAY_FILL_COLOR = (1.0, 0.05, 0.02, 0.28)
+FACESET_OVERLAY_OUTLINE_COLOR = (1.0, 1.0, 1.0, 0.75)
+SELECTION_TARGET_MASK = "MASK"
+SELECTION_TARGET_FACESET = "FACESET"
 MASK_VALUE_EPSILON = 1e-6
 _runtime_masked_object_ids: set[int] = set()
 
@@ -43,6 +48,7 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
     _path = None
     _start_time = 0.0
     _outside_drag_mode = None
+    _selection_target = SELECTION_TARGET_MASK
 
     @classmethod
     def poll(cls, context):
@@ -64,6 +70,7 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
         self._start_time = perf_counter()
         self._drag_started = False
         self._outside_drag_mode = None
+        self._selection_target = SELECTION_TARGET_MASK
         self._is_subtracting = _event_is_subtracting(event)
         self._is_moving_selection = False
         self._move_mouse_x = self._start_mouse_x
@@ -75,6 +82,10 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
         if event.type == "ESC":
             self._cleanup()
             return {"CANCELLED"}
+
+        if _event_is_selection_target_toggle(event) and self._can_toggle_selection_target(context):
+            self._toggle_selection_target()
+            return {"RUNNING_MODAL"}
 
         self._update_subtract_mode(event)
 
@@ -135,8 +146,19 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
             if not self._is_moving_selection:
                 self._append_path_point(event, force=True)
             path = list(self._path)
+            selection_target = self._selection_target
             self._cleanup()
-            if _lasso_hits_active_object(context, self._region, self._region_3d, path):
+            if selection_target == SELECTION_TARGET_FACESET:
+                _finish_faceset_from_mask(
+                    context,
+                    self._region,
+                    self._region_3d,
+                    "LASSO",
+                    (path[0][0], path[0][1]),
+                    (path[-1][0], path[-1][1]),
+                    path,
+                )
+            elif _lasso_hits_active_object(context, self._region, self._region_3d, path):
                 _apply_native_lasso_mask(path, _drag_mask_value(event))
             else:
                 _handle_empty_drag(context)
@@ -145,8 +167,11 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
         if self._outside_drag_mode == "BOX":
             start = (self._start_mouse_x, self._start_mouse_y)
             end = (self._current_mouse_x, self._current_mouse_y)
+            selection_target = self._selection_target
             self._cleanup()
-            if _box_hits_active_object(context, self._region, self._region_3d, start, end):
+            if selection_target == SELECTION_TARGET_FACESET:
+                _finish_faceset_from_mask(context, self._region, self._region_3d, "BOX", start, end, [])
+            elif _box_hits_active_object(context, self._region, self._region_3d, start, end):
                 _apply_native_box_mask(start, end, _drag_mask_value(event))
             else:
                 _handle_empty_drag(context)
@@ -214,6 +239,13 @@ class ZNAV_OT_mask_pen_input(bpy.types.Operator):
     def _drag_distance(self, event) -> float:
         return hypot(event.mouse_region_x - self._start_mouse_x, event.mouse_region_y - self._start_mouse_y)
 
+    def _can_toggle_selection_target(self, context) -> bool:
+        return self._drag_started and self._outside_drag_mode in {"BOX", "LASSO"}
+
+    def _toggle_selection_target(self) -> None:
+        self._selection_target = _next_selection_target(self._selection_target)
+        self._tag_redraw()
+
     def _cleanup(self) -> None:
         if self._draw_handler is not None:
             bpy.types.SpaceView3D.draw_handler_remove(self._draw_handler, "WINDOW")
@@ -265,6 +297,7 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
     _is_moving_selection = False
     _move_mouse_x = 0.0
     _move_mouse_y = 0.0
+    _selection_target = SELECTION_TARGET_MASK
 
     @classmethod
     def poll(cls, context):
@@ -282,6 +315,7 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
         self._max_drag_distance = 0.0
         self._is_subtracting = _event_is_subtracting(event)
         self._is_moving_selection = False
+        self._selection_target = SELECTION_TARGET_MASK
         self._move_mouse_x = self._start_mouse_x
         self._move_mouse_y = self._start_mouse_y
         self._append_path_point(event)
@@ -294,6 +328,10 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
         if event.type == "ESC":
             self._cleanup()
             return {"CANCELLED"}
+
+        if _event_is_selection_target_toggle(event) and self._can_toggle_selection_target(context):
+            self._toggle_selection_target()
+            return {"RUNNING_MODAL"}
 
         self._update_subtract_mode(event)
 
@@ -343,6 +381,13 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
     def _can_move_selection(self, context) -> bool:
         return len(self._path) >= 3 and self._max_drag_distance >= _get_mask_drag_threshold(context)
 
+    def _can_toggle_selection_target(self, context) -> bool:
+        return self._max_drag_distance >= _get_mask_drag_threshold(context)
+
+    def _toggle_selection_target(self) -> None:
+        self._selection_target = _next_selection_target(self._selection_target)
+        self._tag_redraw()
+
     def _handle_space_event(self, event) -> None:
         if event.value == "PRESS":
             self._is_moving_selection = True
@@ -368,6 +413,18 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
 
         if self._max_drag_distance < _get_mask_drag_threshold(context) or len(path) < 3:
             return self._handle_click(context)
+
+        if self._selection_target == SELECTION_TARGET_FACESET:
+            _finish_faceset_from_mask(
+                context,
+                self._region,
+                self._region_3d,
+                "LASSO",
+                (path[0][0], path[0][1]),
+                (path[-1][0], path[-1][1]),
+                path,
+            )
+            return {"FINISHED"}
 
         if _lasso_hits_active_object(context, self._region, self._region_3d, path):
             _apply_native_lasso_mask(path, _drag_mask_value(event))
@@ -395,6 +452,18 @@ class ZNAV_OT_mask_lasso_input(bpy.types.Operator):
 
 def _event_is_subtracting(event) -> bool:
     return bool(getattr(event, "alt", False))
+
+
+def _event_is_selection_target_toggle(event) -> bool:
+    return event.type in {"LEFT_CTRL", "RIGHT_CTRL"} and event.value == "PRESS"
+
+
+def _next_selection_target(selection_target: str) -> str:
+    if selection_target == SELECTION_TARGET_MASK:
+        return SELECTION_TARGET_FACESET
+    if selection_target == SELECTION_TARGET_FACESET:
+        return SELECTION_TARGET_MASK
+    raise RuntimeError(f"Unsupported selection target: {selection_target}")
 
 
 def _drag_mask_value(event) -> float:
@@ -518,6 +587,9 @@ def _draw_pen_outside_box_overlay(operator: ZNAV_OT_mask_pen_input) -> None:
 
 
 def _mask_overlay_colors(operator) -> tuple[tuple[float, float, float, float], tuple[float, float, float, float]]:
+    if getattr(operator, "_selection_target", SELECTION_TARGET_MASK) == SELECTION_TARGET_FACESET:
+        fill_color = FACESET_HIDE_OVERLAY_FILL_COLOR if operator._is_subtracting else FACESET_ADD_OVERLAY_FILL_COLOR
+        return fill_color, FACESET_OVERLAY_OUTLINE_COLOR
     if operator._is_subtracting:
         return SUBTRACT_MASK_OVERLAY_FILL_COLOR, SUBTRACT_MASK_OVERLAY_OUTLINE_COLOR
     return ADD_MASK_OVERLAY_FILL_COLOR, ADD_MASK_OVERLAY_OUTLINE_COLOR
@@ -555,6 +627,32 @@ def _draw_filled_polygon_overlay(
     outline_batch.draw(shader)
     gpu.state.line_width_set(1.0)
     gpu.state.blend_set("NONE")
+
+
+def _finish_faceset_from_mask(
+    context,
+    region,
+    region_3d,
+    gesture_mode: str,
+    start: tuple[float, float],
+    end: tuple[float, float],
+    path: list[tuple[float, float, float]],
+) -> None:
+    from .faceset import _apply_native_faceset_gesture, _gesture_hits_active_object, _invert_visibility_if_any_hidden
+
+    if not _gesture_hits_active_object(context, region, region_3d, gesture_mode, start, end, path):
+        _invert_visibility_if_any_hidden(context.active_object)
+        return
+
+    settings = context.window_manager.zbrush_navigation_settings
+    _apply_native_faceset_gesture(
+        gesture_mode,
+        start,
+        end,
+        path,
+        settings.faceset_front_faces_only,
+        settings.faceset_line_limit_to_segment,
+    )
 
 
 def _apply_native_lasso_mask(path: list[tuple[float, float, float]], value: float) -> None:
