@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "zbrush_navigation"
-version = "0.1.0"
+version = "0.1.1"
 name = "ZBrush Navigation"
 tagline = "ZBrush-style navigation tools for Blender"
 maintainer = "LiuYang"

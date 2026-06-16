@@ -8,7 +8,7 @@ bl_info = {
     "author": "LiuYang",
     "description": "ZBrush-style navigation tools for Blender.",
     "blender": (5, 0, 0),
-    "version": (0, 1, 0),
+    "version": (0, 1, 1),
     "location": "View3D > Sidebar > ZBrush Nav",
     "warning": "",
     "category": "3D View",

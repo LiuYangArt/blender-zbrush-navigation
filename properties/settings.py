@@ -50,8 +50,9 @@ class ZNAV_PG_settings(bpy.types.PropertyGroup):
         items=(
             ("BOX", "Box", "Use native box Face Set gesture"),
             ("LASSO", "Lasso", "Use native lasso Face Set gesture"),
-            ("LINE", "Line", "Use native line Face Set gesture"),
-            ("POLYLINE", "Polyline", "Use native polyline Face Set gesture"),
+            # LINE/POLYLINE are implemented but not exposed until the interaction is stable.
+            # ("LINE", "Line", "Use native line Face Set gesture"),
+            # ("POLYLINE", "Polyline", "Use native polyline Face Set gesture"),
         ),
         default="BOX",
     )
