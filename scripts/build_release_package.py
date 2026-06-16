@@ -4,12 +4,10 @@ import argparse
 import zipfile
 from pathlib import Path
 
-from versioning import assert_versions_match
+from versioning import assert_versions_match, bump_version, read_release_metadata, sync_bl_info_version
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ID = "zbrush_navigation"
-
 ROOT_FILES = (
     "__init__.py",
     "auto_load.py",
@@ -24,6 +22,7 @@ PACKAGE_DIRS = (
 EXCLUDED_PARTS = {"__pycache__"}
 EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 EXCLUDED_BLEND_BACKUPS = (".blend1", ".blend2", ".blend@", ".blend~")
+BUMP_PARTS = ("major", "minor", "patch")
 
 
 def should_include(path: Path) -> bool:
@@ -54,14 +53,22 @@ def iter_package_files() -> list[Path]:
     return sorted(files, key=lambda path: path.relative_to(ROOT).as_posix())
 
 
-def build_package(output_dir: Path, release_tag: str | None = None) -> Path:
+def build_package(output_dir: Path, release_tag: str | None = None, bump: str | None = None) -> Path:
+    if bump is not None:
+        version = bump_version(bump)
+        if release_tag is not None and release_tag != f"v{version}":
+            raise RuntimeError(f"Release tag mismatch after bump: expected v{version}, got {release_tag}")
+    else:
+        sync_bl_info_version()
+
     version = assert_versions_match(release_tag)
+    package_id, _ = read_release_metadata()
     files = iter_package_files()
     if not files:
         raise RuntimeError("No package files found")
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    archive_path = output_dir / f"{PACKAGE_ID}-v{version}.zip"
+    archive_path = output_dir / f"{package_id}-v{version}.zip"
     if archive_path.exists():
         archive_path.unlink()
 
@@ -76,9 +83,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Build the ZBrush Navigation release zip.")
     parser.add_argument("--output", type=Path, default=ROOT / "dist", help="Output directory for the zip file.")
     parser.add_argument("--release-tag", help="Expected GitHub release tag. Must be v{plugin version}.")
+    parser.add_argument(
+        "--bump",
+        choices=BUMP_PARTS,
+        help="Increment manifest version before packaging. Also syncs __init__.py bl_info.",
+    )
     args = parser.parse_args()
 
-    archive_path = build_package(args.output.resolve(), args.release_tag)
+    archive_path = build_package(args.output.resolve(), args.release_tag, args.bump)
     print(archive_path)
     return 0
 

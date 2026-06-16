@@ -48,8 +48,11 @@
 
 ## Release Packaging
 - 只在用户明确要求时打包。
-- Local package: `python scripts/build_release_package.py`
-- Version source of truth: `blender_manifest.toml`; use `python scripts/versioning.py sync` to update `__init__.py` `bl_info` from it.
+- Version/id source of truth: `blender_manifest.toml`; release scripts must read it via `scripts/versioning.py`, not hardcode package id/version.
+- Sync/check version: `python scripts/versioning.py sync` and `python scripts/versioning.py check`.
+- Release package with auto version bump: `python scripts/build_release_package.py --bump patch` (`major`/`minor` also supported).
+- Package filename is generated as `dist/<manifest id>-v<manifest version>.zip`.
+- Non-mutating package check: `python scripts/build_release_package.py`.
 - Package script only includes: `__init__.py`, `auto_load.py`, `blender_manifest.toml`, `functions/`, `operators/`, `panels/`, `properties/`.
 
 ## Verification

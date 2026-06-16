@@ -4,6 +4,7 @@ import argparse
 import ast
 import re
 from pathlib import Path
+from typing import Any
 
 try:
     import tomllib
@@ -15,11 +16,15 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "blender_manifest.toml"
 INIT_PATH = ROOT / "__init__.py"
 VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+MANIFEST_ID_RE = re.compile(r"^[a-z0-9_]+$")
 MANIFEST_VERSION_RE = re.compile(r'(?m)^(version[^\S\r\n]*=[^\S\r\n]*")([^"]+)("[^\S\r\n]*)(\r?)$')
 BL_INFO_VERSION_RE = re.compile(
     r'(?m)^([^\S\r\n]*"version"[^\S\r\n]*:[^\S\r\n]*)'
     r'\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)\)([^\S\r\n]*,[^\S\r\n]*)(\r?)$'
 )
+
+
+BUMP_PARTS = {"major", "minor", "patch"}
 
 
 def parse_version(version: str) -> tuple[int, int, int]:
@@ -33,14 +38,31 @@ def format_version(parts: tuple[int, int, int]) -> str:
     return ".".join(str(part) for part in parts)
 
 
-def read_manifest_version() -> str:
+def read_manifest() -> dict[str, Any]:
     with MANIFEST_PATH.open("rb") as handle:
         manifest = tomllib.load(handle)
-    version = manifest.get("version")
+    if not isinstance(manifest, dict):
+        raise RuntimeError(f"Expected TOML table in {MANIFEST_PATH}")
+    return manifest
+
+
+def read_manifest_id() -> str:
+    package_id = read_manifest().get("id")
+    if not isinstance(package_id, str) or not MANIFEST_ID_RE.fullmatch(package_id):
+        raise RuntimeError(f"Missing valid id in {MANIFEST_PATH}")
+    return package_id
+
+
+def read_manifest_version() -> str:
+    version = read_manifest().get("version")
     if not isinstance(version, str) or not version:
         raise RuntimeError(f"Missing string version in {MANIFEST_PATH}")
     parse_version(version)
     return version
+
+
+def read_release_metadata() -> tuple[str, str]:
+    return read_manifest_id(), read_manifest_version()
 
 
 def read_bl_info_version() -> str:
@@ -80,12 +102,26 @@ def sync_bl_info_version(version: str | None = None) -> str:
     return version
 
 
-def bump_patch() -> str:
+def bump_version(part: str = "patch") -> str:
+    if part not in BUMP_PARTS:
+        raise RuntimeError(f"Expected bump part to be one of {sorted(BUMP_PARTS)}, got {part!r}")
+
     major, minor, patch = parse_version(read_manifest_version())
-    version = format_version((major, minor, patch + 1))
+    if part == "major":
+        version_parts = (major + 1, 0, 0)
+    elif part == "minor":
+        version_parts = (major, minor + 1, 0)
+    else:
+        version_parts = (major, minor, patch + 1)
+
+    version = format_version(version_parts)
     write_manifest_version(version)
     sync_bl_info_version(version)
     return version
+
+
+def bump_patch() -> str:
+    return bump_version("patch")
 
 
 def assert_versions_match(release_tag: str | None = None) -> str:
@@ -106,9 +142,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Manage ZBrush Navigation versions.")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("current")
+    subparsers.add_parser("metadata")
     subparsers.add_parser("sync")
     set_parser = subparsers.add_parser("set")
     set_parser.add_argument("version")
+    bump_parser = subparsers.add_parser("bump")
+    bump_parser.add_argument("part", choices=sorted(BUMP_PARTS), nargs="?", default="patch")
     subparsers.add_parser("bump-patch")
     check_parser = subparsers.add_parser("check")
     check_parser.add_argument("--release-tag")
@@ -116,11 +155,16 @@ def main() -> int:
 
     if args.command == "current":
         print(read_manifest_version())
+    elif args.command == "metadata":
+        package_id, version = read_release_metadata()
+        print(f"{package_id} {version}")
     elif args.command == "sync":
         print(sync_bl_info_version())
     elif args.command == "set":
         write_manifest_version(args.version)
         print(sync_bl_info_version(args.version))
+    elif args.command == "bump":
+        print(bump_version(args.part))
     elif args.command == "bump-patch":
         print(bump_patch())
     elif args.command == "check":
