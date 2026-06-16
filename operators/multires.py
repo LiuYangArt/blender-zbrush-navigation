@@ -30,7 +30,7 @@ class ZNAV_OT_multires_level_up(bpy.types.Operator):
 class ZNAV_OT_multires_existing_level_up(bpy.types.Operator):
     bl_idname = "zbrush_navigation.multires_existing_level_up"
     bl_label = "ZBrush Existing Multires Level Up"
-    bl_description = "Increase Multires level only when the active sculpt object already has Multires"
+    bl_description = "Increase Multires level within existing levels without adding subdivision"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -49,7 +49,7 @@ class ZNAV_OT_multires_existing_level_up(bpy.types.Operator):
             return {"PASS_THROUGH"}
 
         try:
-            target_level, total_levels = _increase_multires_level(obj, modifier)
+            target_level, total_levels = _increase_existing_multires_level(obj, modifier)
         except Exception as error:
             raise RuntimeError(f"Failed to increase existing Multires level for {obj.name}") from error
 
@@ -126,6 +126,14 @@ def _increase_multires_level(obj, modifier: bpy.types.MultiresModifier) -> tuple
             _subdivide_multires(modifier)
             total_levels = modifier.total_levels
         target_level = min(current_level + 1, total_levels)
+        _set_current_multires_level(modifier, target_level)
+    return target_level, total_levels
+
+
+def _increase_existing_multires_level(obj, modifier: bpy.types.MultiresModifier) -> tuple[int, int]:
+    with _temporary_object_mode(obj):
+        total_levels = modifier.total_levels
+        target_level = min(_get_current_multires_level(modifier) + 1, total_levels)
         _set_current_multires_level(modifier, target_level)
     return target_level, total_levels
 

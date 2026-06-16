@@ -16,6 +16,7 @@ ADD_MASK_OVERLAY_OUTLINE_COLOR = (1.0, 1.0, 1.0, 0.5)
 SUBTRACT_MASK_OVERLAY_FILL_COLOR = (1.0, 1.0, 1.0, 0.15)
 SUBTRACT_MASK_OVERLAY_OUTLINE_COLOR = (1.0, 1.0, 1.0, 0.5)
 MASK_VALUE_EPSILON = 1e-6
+_runtime_masked_object_ids: set[int] = set()
 
 
 class ZNAV_OT_mask_pen_input(bpy.types.Operator):
@@ -423,10 +424,16 @@ def _get_mask_drag_threshold(context) -> float:
 
 def _clear_mask() -> None:
     bpy.ops.paint.mask_flood_fill(mode="VALUE", value=0.0)
+    obj = bpy.context.active_object
+    if obj is not None:
+        _mark_object_mask_state(obj, False)
 
 
 def _invert_mask() -> None:
     bpy.ops.paint.mask_flood_fill(mode="INVERT")
+    obj = bpy.context.active_object
+    if obj is not None:
+        _mark_object_mask_state(obj, True)
 
 
 def _handle_empty_drag(context) -> None:
@@ -443,16 +450,32 @@ def _should_voxel_remesh_on_empty_drag(context) -> bool:
 
 
 def _object_has_sculpt_mask(obj) -> bool:
+    if _object_has_runtime_mask(obj):
+        return True
     mask_attribute = obj.data.attributes.get(".sculpt_mask")
     if mask_attribute is None:
         return False
     return any(mask_value.value > MASK_VALUE_EPSILON for mask_value in mask_attribute.data)
 
 
+def _object_has_runtime_mask(obj) -> bool:
+    return obj.as_pointer() in _runtime_masked_object_ids
+
+
+def _mark_object_mask_state(obj, has_mask: bool) -> None:
+    object_id = obj.as_pointer()
+    if has_mask:
+        _runtime_masked_object_ids.add(object_id)
+    else:
+        _runtime_masked_object_ids.discard(object_id)
+
+
 def _run_empty_drag_voxel_remesh(context) -> None:
     obj = context.active_object
     if obj is None:
         raise RuntimeError("Cannot voxel remesh without an active object")
+
+    _mark_object_mask_state(obj, False)
 
     from .multires import _find_multires_modifier, _temporary_object_mode
 
@@ -540,6 +563,7 @@ def _apply_native_lasso_mask(path: list[tuple[float, float, float]], value: floa
         for index, point in enumerate(path)
     ]
     bpy.ops.paint.mask_lasso_gesture(path=operator_path, mode="VALUE", value=value)
+    _mark_active_object_mask_value(value)
 
 
 def _apply_native_box_mask(start: tuple[float, float], end: tuple[float, float], value: float) -> None:
@@ -553,6 +577,13 @@ def _apply_native_box_mask(start: tuple[float, float], end: tuple[float, float],
         mode="VALUE",
         value=value,
     )
+    _mark_active_object_mask_value(value)
+
+
+def _mark_active_object_mask_value(value: float) -> None:
+    obj = bpy.context.active_object
+    if obj is not None and value > MASK_VALUE_EPSILON:
+        _mark_object_mask_state(obj, True)
 
 
 def _lasso_hits_active_object(context, region, region_3d, path: list[tuple[float, float, float]]) -> bool:

@@ -280,15 +280,25 @@ def test_multires_level_operators() -> None:
     assert modifier.sculpt_levels == 2
     assert modifier.levels == 2
 
-    bpy.ops.zbrush_navigation.multires_existing_level_up()
-    assert modifier.total_levels == 3
-    assert modifier.sculpt_levels == 3
-    assert modifier.levels == 3
-
     bpy.ops.zbrush_navigation.multires_level_down()
-    assert modifier.total_levels == 3
+    assert modifier.total_levels == 2
+    assert modifier.sculpt_levels == 1
+    assert modifier.levels == 1
+
+    bpy.ops.zbrush_navigation.multires_existing_level_up()
+    assert modifier.total_levels == 2
     assert modifier.sculpt_levels == 2
     assert modifier.levels == 2
+
+    bpy.ops.zbrush_navigation.multires_existing_level_up()
+    assert modifier.total_levels == 2
+    assert modifier.sculpt_levels == 2
+    assert modifier.levels == 2
+
+    bpy.ops.zbrush_navigation.multires_level_down()
+    assert modifier.total_levels == 2
+    assert modifier.sculpt_levels == 1
+    assert modifier.levels == 1
 
     bpy.ops.object.mode_set(mode="OBJECT")
 
@@ -345,7 +355,12 @@ def test_multires_detail_projection_operator() -> None:
     bpy.ops.object.mode_set(mode="OBJECT")
 
 def test_empty_drag_voxel_remesh_helpers() -> None:
-    from zbrush_navigation.operators.mask import _object_has_sculpt_mask, _run_empty_drag_voxel_remesh
+    from zbrush_navigation.operators.mask import (
+        _mark_object_mask_state,
+        _object_has_sculpt_mask,
+        _run_empty_drag_voxel_remesh,
+        _should_voxel_remesh_on_empty_drag,
+    )
 
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()
@@ -357,6 +372,24 @@ def test_empty_drag_voxel_remesh_helpers() -> None:
     assert not _object_has_sculpt_mask(obj)
     mask_attribute.data[0].value = 0.5
     assert _object_has_sculpt_mask(obj)
+    settings = bpy.context.window_manager.zbrush_navigation_settings
+    settings.enable_empty_drag_voxel_remesh = True
+    assert _should_voxel_remesh_on_empty_drag(bpy.context) is False
+
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    bpy.ops.mesh.primitive_cube_add(size=2.0)
+    obj = bpy.context.object
+    assert _should_voxel_remesh_on_empty_drag(bpy.context) is True
+    modifier = obj.modifiers.new(name="Multires", type="MULTIRES")
+    bpy.ops.object.multires_subdivide(modifier=modifier.name, mode="CATMULL_CLARK")
+    assert _should_voxel_remesh_on_empty_drag(bpy.context) is True
+    _mark_object_mask_state(obj, True)
+    assert _object_has_sculpt_mask(obj)
+    assert _should_voxel_remesh_on_empty_drag(bpy.context) is False
+    _mark_object_mask_state(obj, False)
+    assert not _object_has_sculpt_mask(obj)
+    assert _should_voxel_remesh_on_empty_drag(bpy.context) is True
 
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()
