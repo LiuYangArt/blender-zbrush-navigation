@@ -26,6 +26,7 @@ class ZNAV_PT_view3d_panel(bpy.types.Panel):
         if settings.mask_input_mode == "PEN":
             layout.prop(settings, "pen_outside_drag_mode", expand=True)
         layout.prop(settings, "enable_empty_drag_voxel_remesh")
+        layout.prop(settings, "mask_front_faces_only")
         layout.separator()
         layout.prop(settings, "faceset_gesture", expand=True)
         layout.prop(settings, "faceset_front_faces_only")

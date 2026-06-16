@@ -61,8 +61,9 @@ def test_keymaps_are_addon_scoped() -> None:
 
         navigation_state.apply_zbrush_navigation()
         settings = bpy.context.window_manager.zbrush_navigation_settings
-        assert settings.pen_outside_drag_mode == "LASSO"
+        assert settings.pen_outside_drag_mode == "BOX"
         assert settings.enable_empty_drag_voxel_remesh is False
+        assert settings.mask_front_faces_only is False
         assert settings.faceset_gesture == "BOX"
         assert settings.faceset_front_faces_only is False
         assert settings.faceset_line_limit_to_segment is False
@@ -439,9 +440,12 @@ def test_mask_drag_value_uses_release_alt_state() -> None:
 def test_mask_selection_overlay_helpers() -> None:
     from types import SimpleNamespace
 
+    from zbrush_navigation.operators import mask
     from zbrush_navigation.operators.mask import (
         ADD_MASK_OVERLAY_FILL_COLOR,
         SUBTRACT_MASK_OVERLAY_FILL_COLOR,
+        _apply_native_box_mask,
+        _apply_native_lasso_mask,
         _mask_overlay_colors,
         _translate_lasso_path,
     )
@@ -452,6 +456,32 @@ def test_mask_selection_overlay_helpers() -> None:
         (11.0, 1.0, 0.0),
         (13.0, 3.0, 0.5),
     ]
+
+    calls = []
+    fake_bpy = SimpleNamespace(
+        context=SimpleNamespace(
+            active_object=None,
+            window_manager=SimpleNamespace(
+                zbrush_navigation_settings=SimpleNamespace(mask_front_faces_only=True),
+            ),
+        ),
+        ops=SimpleNamespace(
+            paint=SimpleNamespace(
+                mask_box_gesture=lambda **kwargs: calls.append(("box", kwargs)),
+                mask_lasso_gesture=lambda **kwargs: calls.append(("lasso", kwargs)),
+            )
+        ),
+    )
+    original_bpy = mask.bpy
+    try:
+        mask.bpy = fake_bpy
+        _apply_native_box_mask((1.0, 2.0), (3.0, 4.0), 1.0)
+        _apply_native_lasso_mask([(1.0, 2.0, 0.0), (3.0, 4.0, 0.5), (5.0, 6.0, 0.8)], 0.0)
+    finally:
+        mask.bpy = original_bpy
+
+    assert calls[0][1]["use_front_faces_only"] is True
+    assert calls[1][1]["use_front_faces_only"] is True
 
 
 
@@ -467,8 +497,10 @@ def test_faceset_helpers() -> None:
         _to_operator_path,
     )
 
-    assert _faceset_overlay_colors(SimpleNamespace(_is_hiding=False))[0] == FACESET_ADD_OVERLAY_FILL_COLOR
-    assert _faceset_overlay_colors(SimpleNamespace(_is_hiding=True))[0] == FACESET_HIDE_OVERLAY_FILL_COLOR
+    add_operator = SimpleNamespace(_is_hiding=False, _selection_target="FACESET")
+    hide_operator = SimpleNamespace(_is_hiding=True, _selection_target="FACESET")
+    assert _faceset_overlay_colors(add_operator)[0] == FACESET_ADD_OVERLAY_FILL_COLOR
+    assert _faceset_overlay_colors(hide_operator)[0] == FACESET_HIDE_OVERLAY_FILL_COLOR
     assert _to_operator_path([(1.0, 2.0, 0.0), (3.0, 4.0, 0.5)]) == [
         {"name": "0", "loc": (1.0, 2.0), "time": 0.0},
         {"name": "1", "loc": (3.0, 4.0), "time": 0.5},

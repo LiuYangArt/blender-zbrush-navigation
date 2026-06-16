@@ -660,7 +660,12 @@ def _apply_native_lasso_mask(path: list[tuple[float, float, float]], value: floa
         {"name": str(index), "loc": (point[0], point[1]), "time": point[2]}
         for index, point in enumerate(path)
     ]
-    bpy.ops.paint.mask_lasso_gesture(path=operator_path, mode="VALUE", value=value)
+    bpy.ops.paint.mask_lasso_gesture(
+        path=operator_path,
+        use_front_faces_only=_use_mask_front_faces_only(),
+        mode="VALUE",
+        value=value,
+    )
     _mark_active_object_mask_value(value)
 
 
@@ -672,10 +677,15 @@ def _apply_native_box_mask(start: tuple[float, float], end: tuple[float, float],
         ymin=int(min_y),
         ymax=int(max_y),
         wait_for_input=False,
+        use_front_faces_only=_use_mask_front_faces_only(),
         mode="VALUE",
         value=value,
     )
     _mark_active_object_mask_value(value)
+
+
+def _use_mask_front_faces_only() -> bool:
+    return bool(bpy.context.window_manager.zbrush_navigation_settings.mask_front_faces_only)
 
 
 def _mark_active_object_mask_value(value: float) -> None:

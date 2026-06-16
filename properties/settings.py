@@ -39,6 +39,11 @@ class ZNAV_PG_settings(bpy.types.PropertyGroup):
         description="Run voxel remesh on empty Ctrl-drag when the active sculpt object has no mask",
         default=False,
     )
+    mask_front_faces_only: bpy.props.BoolProperty(
+        name="Front Faces Only",
+        description="Limit box and lasso mask gestures to front-facing geometry",
+        default=False,
+    )
     faceset_gesture: bpy.props.EnumProperty(
         name="Face Set Gesture",
         description="Gesture used by Ctrl+Shift drag for Face Set operations",
